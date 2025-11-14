@@ -42,12 +42,31 @@ img = cv2.imread(sys.argv[1])
 kernel_size = 5
 min_area = 100
 
+
 # convert image from BGR to HSV color space
 hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
-
 # create a binary mask selecting pixels in the "green" HSV range
-mask = cv2.inRange(hsv, np.array([35, 40, 40]), np.array([85, 255, 255]))
+lower = np.array([35, 40, 40])
+upper = np.array([85, 255, 255])
+
+h, s, v = cv2.split(hsv)
+
+# Put in range [lower, upper]. https://www.desmos.com/calculator/o28zw2tvwz
+# Normalize distances only inside the green range
+h_mask = np.clip((h - lower[0]) / (upper[0] - lower[0]), 0, 1)
+s_mask = np.clip((s - lower[1]) / (upper[1] - lower[1]), 0, 1)
+v_mask = np.clip((v - lower[2]) / (upper[2] - lower[2]), 0, 1)
+
+# Combine the normalized distances
+gradient = (h_mask + s_mask + v_mask) / 3 * 255
+
+# Clamp everything outside the range to 0
+inside_mask = cv2.inRange(hsv, lower, upper)
+mask = cv2.bitwise_and(gradient.astype(np.uint8), gradient.astype(np.uint8), mask=inside_mask)
+
+# mask = cv2.inRange(hsv, np.array([35, 40, 40]), np.array([85, 255, 255]))
 _debug_img(mask)
+
 
 n_labels, labels, stats, centroid = cv2.connectedComponentsWithStats(mask)
 
@@ -61,36 +80,3 @@ for i in range(1, n_labels): # labels[0] is the background
 boxes = remove_inner_boxes(boxes)
 draw_boxes(img, boxes)
 _debug_img(img)
-
-"""
-
-# define a small 5×5 kernel for morphological ops
-k = np.ones((kernel_size, kernel_size), np.uint8)
-
-# remove noise and close small gaps in the mask
-#mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, k)
-#mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, k)
-
-# find contours (outlines) of connected green regions
-contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-
-# store bounding boxes (x1, y1, x2, y2)
-boxes = []
-for c in contours:
-    # ignore tiny noise regions
-    if cv2.contourArea(c) > min_area:
-        # compute bounding box of each contour
-        x, y, w, h = cv2.boundingRect(c)
-
-        # store as top-left and bottom-right corners
-        boxes.append((x, y, x + w, y + h))
-
-
-for box in boxes:
-    x1, y1, x2, y2 = box
-    cv2.rectangle(img, (x1, y1), (x2, y2), (0, 255, 0), 2)
-
-cv2.imshow("Green", img)
-cv2.waitKey(0)
-cv2.destroyAllWindows()
-"""
