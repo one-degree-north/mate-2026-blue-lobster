@@ -9,4 +9,4 @@ uv sync # install packages from pyproject.toml
 
 ```
 
-Exit the virtual environment by running `deactivate`
+Exit the virtual environment by running `deactivate` in the shell.
