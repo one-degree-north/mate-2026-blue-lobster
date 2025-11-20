@@ -1,4 +1,4 @@
-# Mate 2026
+# MATE 2026
 
 # Setup
 ```bash
