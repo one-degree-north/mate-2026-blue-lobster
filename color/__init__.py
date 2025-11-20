@@ -65,7 +65,7 @@ inside_mask = cv2.inRange(hsv, lower, upper)
 mask = cv2.bitwise_and(gradient.astype(np.uint8), gradient.astype(np.uint8), mask=inside_mask)
 
 # mask = cv2.inRange(hsv, np.array([35, 40, 40]), np.array([85, 255, 255]))
-_debug_img(mask)
+# _debug_img(mask)
 
 
 n_labels, labels, stats, centroid = cv2.connectedComponentsWithStats(mask)
@@ -80,3 +80,33 @@ for i in range(1, n_labels): # labels[0] is the background
 boxes = remove_inner_boxes(boxes)
 draw_boxes(img, boxes)
 _debug_img(img)
+
+"""
+in_area = 100
+kernel_size = 5
+
+# 1) Smooth gradient mask and threshold to binary
+mask_blur = cv2.GaussianBlur(mask, (5, 5), 0)
+_, binary = cv2.threshold(mask_blur, 50, 255, cv2.THRESH_BINARY)
+
+# 2) Morphological opening to disconnect leaves & remove noise
+kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (kernel_size, kernel_size))
+cleaned = cv2.morphologyEx(binary, cv2.MORPH_OPEN, kernel)
+
+# 3) Find contours (external)
+contours, _ = cv2.findContours(cleaned, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+
+boxes = []
+for cnt in contours:
+    area = cv2.contourArea(cnt)
+    if area < min_area:
+        continue
+    x, y, w, h = cv2.boundingRect(cnt)
+    boxes.append((x, y, x + w, y + h))
+
+# Optional: remove nested boxes
+leaf_boxes = remove_inner_boxes(boxes)
+
+# Draw results
+draw_boxes(img, leaf_boxes)
+_debug_img(img)"""
