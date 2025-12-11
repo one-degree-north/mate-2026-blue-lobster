@@ -9,10 +9,18 @@ RATIO_TEST = 0.75
 RANSAC_THR = 5.0
 # --------------------------------
 
-ref_path = sys.argv[1]
+
+
+REF_PATH = sys.argv[1]
+VIDEO_INPUT_PATH = sys.argv[2]
+try:
+    VIDEO_INPUT_PATH = int(VIDEO_INPUT_PATH)
+except ValueError:
+    pass
+
 
 # Load reference image
-ref = cv2.imread(ref_path, cv2.IMREAD_COLOR)
+ref = cv2.imread(REF_PATH, cv2.IMREAD_COLOR)
 if ref is None:
     print("Could not read reference image.")
     sys.exit(1)
@@ -29,9 +37,9 @@ kp_ref, des_ref = sift.detectAndCompute(ref, None)
 bf = cv2.BFMatcher(cv2.NORM_L2)
 
 # Webcam
-cap = cv2.VideoCapture(0)
+cap = cv2.VideoCapture(VIDEO_INPUT_PATH)
 if not cap.isOpened():
-    print("Could not open webcam.")
+    print("Could not open video device.")
     sys.exit(1)
 
 while True:
