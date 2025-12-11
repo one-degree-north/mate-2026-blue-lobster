@@ -1,10 +1,11 @@
 import cv2
+import sys
 import numpy as np
 
 # ----------------------------
 # Load reference image
 # ----------------------------
-ref = cv2.imread("reference.png", cv2.IMREAD_GRAYSCALE)
+ref = cv2.imread(sys.argv[1], cv2.IMREAD_GRAYSCALE)
 if ref is None:
     raise ValueError("Could not load reference image")
 
