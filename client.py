@@ -2,6 +2,7 @@ import ctypes
 import cv2
 import os
 import shutil
+from typing import Callable
 
 class PgmBindings:
     def __init__(self, path: str) -> None:
@@ -44,7 +45,7 @@ class Photogrammetry:
         self.recording: list[cv2.typing.MatLike] = []
         self.frame_rate: int = 30
     
-    def on_new_frame_callback(self, frame: cv2.typing.MatLike) -> None:
+    def receive_frame(self, frame: cv2.typing.MatLike) -> None:
         frame = cv2.cvtColor(frame, cv2.COLOR_RGBA2BGR)
         self.recording.append(frame)
 
@@ -104,13 +105,27 @@ class Photogrammetry:
         # dpg.set_value(self.progress_bar, progress)
         # dpg.configure_item(self.progress_bar, overlay=f"{100 * progress:.2f}%")
         # dpg.set_value(self.eta_indicator, f"ETA: {eta:.2f}s")
+
     def get_eta(self):
         return self.lib.get_eta()
     
 
 if __name__ == "__main__":
+
     bindings = PgmBindings("libpgm.dylib")
     photogrammetry = Photogrammetry(bindings)
+    photogrammetry.start_recording()
+
+    cap = cv2.VideoCapture("ignore/test.mov")
+    while True:
+        success, frame = cap.read()
+        if not success:
+            break
+        photogrammetry.receive_frame(frame)
+    
+    photogrammetry.stop_recording()
+    photogrammetry.start_reconstruction()
+
     # camera(callback=on_new_frame_callback)
 
     # label="Open in Preview", callback=lambda: os.system("open pgm/reconstruction/out.usdz")
