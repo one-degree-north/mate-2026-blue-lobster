@@ -33,7 +33,7 @@ end
 # Unset irrelevant variables.
 deactivate nondestructive
 
-set -gx VIRTUAL_ENV '/Users/aryanmahajan/GUI gstreamer/venv'
+set -gx VIRTUAL_ENV /Users/aryanmahajan/Documents/PROJECTS/mate-2026-blue-lobster/venv
 
 set -gx _OLD_VIRTUAL_PATH $PATH
 set -gx PATH "$VIRTUAL_ENV/"bin $PATH

@@ -38,7 +38,7 @@ deactivate () {
 # unset irrelevant variables
 deactivate nondestructive
 
-VIRTUAL_ENV='/Users/aryanmahajan/GUI gstreamer/venv'
+VIRTUAL_ENV=/Users/aryanmahajan/Documents/PROJECTS/mate-2026-blue-lobster/venv
 export VIRTUAL_ENV
 
 _OLD_VIRTUAL_PATH="$PATH"

@@ -3,6 +3,7 @@ import numpy as np
 import gi
 import threading
 import queue
+import datetime
 
 
 gi.require_version("Gst", "1.0")
@@ -13,6 +14,7 @@ class VideoStream:
 
         self.pipeline = Gst.parse_launch(pipeline_desc)
         self.appsink = self.pipeline.get_by_name("sink")
+        self.tee = self.pipeline.get_by_name("t")
 
         self.raw_frame = None
         self.processed_frame = None
@@ -146,4 +148,26 @@ class VideoStream:
             gl.glDeleteTextures([self.tex_raw])
         if self.tex_processed:
             gl.glDeleteTextures([self.tex_processed])
+    
+
+    def start_recording(self):
+        # Create a new unique filename
+        filename = f"recording_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.mp4"
+        
+        # Create recording bin
+        record_bin = Gst.parse_bin_from_description(
+            f"queue ! x264enc ! mp4mux ! filesink location={filename}", True
+        )
+        
+        # Add the bin to the pipeline
+        pipeline.add(record_bin)
+        record_bin.sync_state_with_parent()
+        
+        # Request a tee pad and link
+        tee_src_pad = tee.get_request_pad("src_%u")
+        bin_sink_pad = record_bin.get_static_pad("sink")
+        tee_src_pad.link(bin_sink_pad)
+        
+        print(f"Recording started: {filename}")
+        return record_bin, tee_src_pad
 

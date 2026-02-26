@@ -12,10 +12,10 @@ gi.require_version("Gst", "1.0")
 
 
 # =========================
-# Main Application
+# Initialization
 # =========================
-def main():
-    # ---- GLFW / OpenGL ----
+
+def init_window():
     glfw.init()
     glfw.window_hint(glfw.CONTEXT_VERSION_MAJOR, 3)
     glfw.window_hint(glfw.CONTEXT_VERSION_MINOR, 3)
@@ -25,38 +25,115 @@ def main():
     window = glfw.create_window(1440, 900, "Dual Video View", None, None)
     glfw.make_context_current(window)
     glfw.swap_interval(1)
+    return window
 
-    # ---- ImGui ----
+
+def init_imgui(window):
     imgui.create_context()
-    impl = GlfwRenderer(window)
+    return GlfwRenderer(window)
 
-    # ---- Video Stream ----
+
+def init_stream():
     recognizer = ImageRecognizer("assets/monkeydo.png")
 
     pipeline_desc = """
     udpsrc port=5000 caps="application/x-rtp, media=video, encoding-name=H264, payload=96" !
     rtph264depay ! avdec_h264 !
-    videoconvert ! video/x-raw,format=RGB !
-    appsink name=sink emit-signals=true max-buffers=1 drop=true
+    videoconvert ! video/x-raw,format=RGB ! tee name=t
+    t. ! queue ! appsink name=sink emit-signals=true max-buffers=1 drop=true
     """
 
-    stream = VideoStream(pipeline_desc, recognizer)
-    previous_time = time.time()
-    start = False
-    elapsed_time = 0
+    return VideoStream(pipeline_desc, recognizer)
 
-    # ---- Render Loop ----
+
+# =========================
+# UI Rendering
+# =========================
+
+def render_video_section(stream):
+    stream.update()
+    tex_raw, tex_proc = stream.get_textures()
+    shape = stream.get_frame_shape()
+
+    imgui.begin_child("Videos", 400, 800)
+
+    if shape:
+        h, w = shape
+        panel_w = 400
+        panel_h = int(panel_w * h / w)
+
+        # Left panel
+        imgui.begin_child("left_panel", panel_w, panel_h + 40, border=True)
+        imgui.text("Raw Feed")
+        imgui.image(tex_raw, panel_w, panel_h)
+        imgui.end_child()
+
+
+        # Right panel
+        imgui.begin_child("right_panel", panel_w, panel_h + 40, border=True)
+        imgui.text("CV Detection")
+        imgui.image(tex_proc, panel_w, panel_h)
+        imgui.end_child()
+
+    imgui.end_child()
+
+
+def render_stopwatch(state):
+    imgui.begin_child("StopWatch", 500, 200, border=True)
+
+    imgui.text("Stop Watch")
+
+    t = time.time()
+
+    if imgui.button("Start"):
+        state["running"] = not state["running"]
+
+    if state["running"]:
+        state["elapsed"] += t - state["prev_time"]
+
+    state["prev_time"] = t
+
+    elapsed = state["elapsed"]
+    imgui.text(
+        f"{int(elapsed//60):02d}:"
+        f"{int((elapsed%60)//1):02d}:"
+        f"{int(((elapsed%1)*1000)//1):03d}"
+    )
+
+    imgui.end_child()
+
+
+def render_options_section(state):
+    imgui.begin_child("Options", 0, 0, border=True)
+    imgui.text("Options")
+
+    render_stopwatch(state)
+
+    imgui.begin_child("Button 2", 500, 200)
+    imgui.text("Button")
+    imgui.end_child()
+
+    imgui.end_child()
+
+
+# =========================
+# Main Loop
+# =========================
+
+def main_loop(window, impl, stream):
+    state = {
+        "running": False,
+        "elapsed": 0,
+        "prev_time": time.time(),
+    }
+
     while not glfw.window_should_close(window):
         glfw.poll_events()
         impl.process_inputs()
         imgui.new_frame()
 
-        stream.update()
-        tex_raw, tex_proc = stream.get_textures()
-        shape = stream.get_frame_shape()
-
         io = imgui.get_io()
-        imgui.set_next_window_size(io.display_size.x, io.display_size.y)
+        imgui.set_next_window_size(io.display_size.x-100, io.display_size.y-100)
 
         imgui.begin(
             "Main",
@@ -67,50 +144,13 @@ def main():
                 | imgui.WINDOW_NO_SCROLLBAR
             ),
         )
-        imgui.begin_child("Videos", 400, 600)
-        if shape:
-            h, w = shape
-            panel_w = 600
-            panel_h = int(panel_w * h / w)
 
-            imgui.begin_child("left_panel", panel_w, panel_h + 40, border=True)
-            imgui.text("Raw Feed")
-            imgui.image(tex_raw, panel_w, panel_h)
-            imgui.end_child()
+        render_video_section(stream)
 
-
-            # ---- Right panel ----
-            imgui.begin_child("right_panel", panel_w, panel_h + 40, border=True)
-            imgui.text("CV Detection")
-            imgui.image(tex_proc, panel_w, panel_h)
-            imgui.end_child()
-
-        imgui.end_child()
         imgui.same_line()
-        imgui.begin_child("Options", 1000, 1000, border=True)
-        imgui.text("Options")
 
-        imgui.begin_child("StopWatch", 500, 200, border=True)
+        render_options_section(state)
 
-        # Stop Watch
-        imgui.text("Stop Watch")
-        t = time.time()
-        if imgui.button("Start"):
-            start = not start
-        
-        if start:
-            elapsed_time+=t-previous_time
-        previous_time = t
-        imgui.text(f"{int(elapsed_time//60):02d}:{int((elapsed_time%60)//1):02d}:{int(((elapsed_time%1)*1000)//1):03d}")        
-
-        imgui.end_child()
-
-        # 
-        imgui.begin_child("Button 2", 500, 200)
-        imgui.text("Button")
-        imgui.end_child()
-
-        imgui.end_child()
         imgui.end()
 
         imgui.render()
@@ -119,7 +159,18 @@ def main():
         impl.render(imgui.get_draw_data())
         glfw.swap_buffers(window)
 
-    # ---- Shutdown ----
+
+# =========================
+# Entry Point
+# =========================
+
+def main():
+    window = init_window()
+    impl = init_imgui(window)
+    stream = init_stream()
+
+    main_loop(window, impl, stream)
+
     stream.shutdown()
     impl.shutdown()
     glfw.terminate()
