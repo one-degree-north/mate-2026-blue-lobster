@@ -92,10 +92,10 @@ class Photogrammetry:
         # for frame in range(1, frames + 1, skip_frames):
         #     shutil.copy(f"pgm/recording/frame_{frame}.png", f"pgm/reconstruction/frame_{frame}.png")
 
-        self.lib.run_photogrammetry_session(b"pgm/reconstruction")
+        self.lib.start(b"pgm/reconstruction")
         
     def stop_reconstruction(self):
-        self.lib.stop_photogrammetry_session()
+        self.lib.stop()
     
     def set_frame_rate(self, _, frame_rate):
         self.frame_rate = frame_rate
