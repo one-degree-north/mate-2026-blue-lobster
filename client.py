@@ -42,8 +42,11 @@ class PgmBindings:
 
 class Photogrammetry:
     def __init__(self, lib: PgmBindings) -> None:
+        self.lib = lib
+        
         self.recording: list[cv2.typing.MatLike] = []
         self.frame_rate: int = 30
+
     
     def receive_frame(self, frame: cv2.typing.MatLike) -> None:
         frame = cv2.cvtColor(frame, cv2.COLOR_RGBA2BGR)
@@ -60,7 +63,11 @@ class Photogrammetry:
 
         os.makedirs("pgm/recording", exist_ok=True)
 
-        video_writer = cv2.VideoWriter("pgm/recording/video.avi", cv2.VideoWriter_fourcc(*"MJPG"), 30, (800, 600))
+        if not self.recording:
+            return
+
+        frame_height, frame_width = self.recording[0].shape[:2]
+        video_writer = cv2.VideoWriter("pgm/recording/video.avi", cv2.VideoWriter_fourcc(*"MJPG"), self.frame_rate, (frame_width, frame_height))
         for frame in self.recording:
             video_writer.write(frame)
         video_writer.release()
