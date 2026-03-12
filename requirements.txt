@@ -3,3 +3,4 @@ imgui
 PyOpenGL
 PyGObject
 opencv-python
+concur

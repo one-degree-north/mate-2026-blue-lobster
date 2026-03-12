@@ -1,179 +1,239 @@
-import glfw
-import imgui
-from imgui.integrations.glfw import GlfwRenderer
-import OpenGL.GL as gl
-import gi
 import time
+import gi
+
+import concur as c
+import datetime
+import imgui
+import os
 
 from helper.monkeyseecrab import ImageRecognizer
 from video_stream import VideoStream
 
 gi.require_version("Gst", "1.0")
-
+from gi.repository import Gst
+from photogrammetry import PhotoGrammetry
 
 # =========================
-# Initialization
+# Video stream
 # =========================
-
-def init_window():
-    glfw.init()
-    glfw.window_hint(glfw.CONTEXT_VERSION_MAJOR, 3)
-    glfw.window_hint(glfw.CONTEXT_VERSION_MINOR, 3)
-    glfw.window_hint(glfw.OPENGL_PROFILE, glfw.OPENGL_CORE_PROFILE)
-    glfw.window_hint(glfw.OPENGL_FORWARD_COMPAT, glfw.TRUE)
-
-    window = glfw.create_window(1440, 900, "Dual Video View", None, None)
-    glfw.make_context_current(window)
-    glfw.swap_interval(1)
-    return window
-
-
-def init_imgui(window):
-    imgui.create_context()
-    return GlfwRenderer(window)
-
 
 def init_stream():
     recognizer = ImageRecognizer("assets/monkeydo.png")
-
     pipeline_desc = """
     udpsrc port=5000 caps="application/x-rtp, media=video, encoding-name=H264, payload=96" !
     rtph264depay ! avdec_h264 !
     videoconvert ! video/x-raw,format=RGB ! tee name=t
     t. ! queue ! appsink name=sink emit-signals=true max-buffers=1 drop=true
     """
-
     return VideoStream(pipeline_desc, recognizer)
 
-
 # =========================
-# UI Rendering
+# Init font
 # =========================
 
-def render_video_section(stream):
-    stream.update()
-    tex_raw, tex_proc = stream.get_textures()
-    shape = stream.get_frame_shape()
+def set_global_font_once():
+    io = imgui.get_io()
+    io.font_global_scale = 1.5  # 1.2, 1.5, 2.0
 
-    imgui.begin_child("Videos", 400, 800)
-
-    if shape:
-        h, w = shape
-        panel_w = 400
-        panel_h = int(panel_w * h / w)
-
-        # Left panel
-        imgui.begin_child("left_panel", panel_w, panel_h + 40, border=True)
-        imgui.text("Raw Feed")
-        imgui.image(tex_raw, panel_w, panel_h)
-        imgui.end_child()
-
-
-        # Right panel
-        imgui.begin_child("right_panel", panel_w, panel_h + 40, border=True)
-        imgui.text("CV Detection")
-        imgui.image(tex_proc, panel_w, panel_h)
-        imgui.end_child()
-
-    imgui.end_child()
-
-
-def render_stopwatch(state):
-    imgui.begin_child("StopWatch", 500, 200, border=True)
-
-    imgui.text("Stop Watch")
-
-    t = time.time()
-
-    if imgui.button("Start"):
-        state["running"] = not state["running"]
-
-    if state["running"]:
-        state["elapsed"] += t - state["prev_time"]
-
-    state["prev_time"] = t
-
-    elapsed = state["elapsed"]
-    imgui.text(
-        f"{int(elapsed//60):02d}:"
-        f"{int((elapsed%60)//1):02d}:"
-        f"{int(((elapsed%1)*1000)//1):03d}"
-    )
-
-    imgui.end_child()
-
-
-def render_options_section(state):
-    imgui.begin_child("Options", 0, 0, border=True)
-    imgui.text("Options")
-
-    render_stopwatch(state)
-
-    imgui.begin_child("Button 2", 500, 200)
-    imgui.text("Button")
-    imgui.end_child()
-
-    imgui.end_child()
 
 
 # =========================
-# Main Loop
+# UI Widgets
 # =========================
 
-def main_loop(window, impl, stream):
-    state = {
-        "running": False,
-        "elapsed": 0,
-        "prev_time": time.time(),
-    }
+def snap_to_grid(size=20):
+    x, y = imgui.get_window_position()
+    snapped_x = round(x / size) * size
+    snapped_y = round(y / size) * size
+    imgui.set_window_position(snapped_x, snapped_y)
 
-    while not glfw.window_should_close(window):
-        glfw.poll_events()
-        impl.process_inputs()
-        imgui.new_frame()
 
-        io = imgui.get_io()
-        imgui.set_next_window_size(io.display_size.x-100, io.display_size.y-100)
+def raw_video_panel(stream):
+    set_global_font_once()
+    while True:
+        snap_to_grid(50)
 
-        imgui.begin(
-            "Main",
-            flags=(
-                imgui.WINDOW_NO_TITLE_BAR
-                | imgui.WINDOW_NO_RESIZE
-                | imgui.WINDOW_NO_MOVE
-                | imgui.WINDOW_NO_SCROLLBAR
-            ),
-        )
+        stream.update()
+        tex_raw, _, _ = stream.get_textures()
+        shape = stream.get_frame_shape()
 
-        render_video_section(stream)
+        if shape:
+            h, w = shape
+            avail_w, avail_h = imgui.get_content_region_available()
+            ratio = min(avail_w / w, avail_h / h)
+            panel_w = int(w * ratio)
+            panel_h = int(h * ratio)
 
+            imgui.image(tex_raw, panel_w, panel_h)
+
+        yield
+
+
+def processed_video_panel(stream):
+    while True:
+        snap_to_grid(50)
+
+        stream.update()
+        _, tex_proc, _ = stream.get_textures()
+        shape = stream.get_frame_shape()
+
+        if shape:
+            h, w = shape
+            avail_w, avail_h = imgui.get_content_region_available()
+            ratio = min(avail_w / w, avail_h / h)
+            panel_w = int(w * ratio)
+            panel_h = int(h * ratio)
+
+            imgui.image(tex_proc, panel_w, panel_h)
+
+        yield
+
+def third_video_panel(stream):
+    while True:
+        snap_to_grid(50)
+
+        stream.update()
+        _, _, tex_third = stream.get_textures()
+        shape = stream.get_frame_shape()
+
+        if shape:
+            h, w = shape
+            avail_w, avail_h = imgui.get_content_region_available()
+            ratio = min(avail_w / w, avail_h / h)
+            panel_w = int(w * ratio)
+            panel_h = int(h * ratio)
+
+            imgui.image(tex_third, panel_w, panel_h)
+
+        yield
+
+
+def video_recording_panel(state, stream):
+    # --- Initialization ---
+    if "recording" not in state:
+        state["recording"] = False
+    
+    # --- Cooldown Logic ---
+    current_time = time.time()
+
+    button_label = "STOP Recording" if state["recording"] else "START Recording"
+    
+    if imgui.button(button_label):
+        
+        if not state["recording"]:
+            # START
+            state["active_bin"], state["active_pad"] = stream.start_recording()
+            state["rec_start_time"] = current_time
+            state["recording"] = True
+        else:
+            # STOP
+            # Ensure we call the cleanup with EOS in your VideoStream class
+            stream.stop_recording(state.get("active_bin"), state.get("active_pad"))
+            state["recording"] = False
+            state["active_bin"] = None
+            state["active_pad"] = None
+
+    imgui.same_line()
+
+    # --- Indicators ---
+    if state["recording"]:
+        # Blinking REC icon
+        if int(current_time * 2) % 2 == 0:
+            imgui.text_colored("REC", 1.0, 0.0, 0.0, 1.0)
+        else:
+            imgui.text("   ")
+        
         imgui.same_line()
+        
+        elapsed = current_time - state["rec_start_time"]
+        imgui.text(f"{int(elapsed // 60):02d}:{int(elapsed % 60):02d}")
+    else:
+        imgui.text_disabled("Standby")
 
-        render_options_section(state)
+def options_panel(state, stream):
+    while True:
+        snap_to_grid(50)
+        imgui.text("Options")
+        imgui.separator()
+        imgui.spacing()
 
-        imgui.end()
+        video_recording_panel(state, stream)
+        imgui.spacing()
+        imgui.separator()
+        imgui.spacing()
 
-        imgui.render()
-        gl.glClearColor(0.1, 0.1, 0.1, 1)
-        gl.glClear(gl.GL_COLOR_BUFFER_BIT)
-        impl.render(imgui.get_draw_data())
-        glfw.swap_buffers(window)
+        if imgui.button("Take Snapshot"):
+            if stream.raw_frame is not None:
+                if not os.path.isdir("recordings"):
+                    os.makedirs("recordings/")
+                import cv2
+                ts = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
+                filename = f"recordings/snapshot_{ts}.png"
+                cv2.imwrite(filename, stream.raw_frame)
+                print(f"Snapshot saved: {filename}")
+        
+        imgui.spacing()
+        
+        imgui.separator()
+        imgui.spacing()
 
+        if "photogrammetry_active" not in state or not state["photogrammetry_active"]:
+            state["photogrammetry_active"] = False
+        if not state["photogrammetry_active"]:
+            if imgui.button("Start Photogrammetary"):
+                state["photogrammetry_active"] = True
+                print("Starting photogrammetry...")
+
+                # Optionally, capture a few frames for reconstruction
+                import threading
+
+                def run_photogrammetry():
+                    # Example: send the latest raw frame
+                    if stream.raw_frame is not None:
+                        state["photogrammetry"].send_iframe(stream.raw_frame)
+
+                threading.Thread(target=run_photogrammetry, daemon=True).start()
+        else:
+            if imgui.button("Begin Reconstruction"):
+                print("ending photogrammetry...")
+                state["photogrammetry_active"] = False
+
+                # Capture frames asynchronously
+                def end_callback():
+                    state["photogrammetry_active"] = False
+                    print("Photogrammetry reconstruction complete!")
+
+                # Optionally, capture a few frames for reconstruction
+                import threading
+
+                def start_reconstruction():
+                    # Start the (mock) reconstruction
+                    state["photogrammetry"].start_reconstruction(end_callback)
+
+                threading.Thread(target=start_reconstruction, daemon=True).start()
+
+        yield
+        
 
 # =========================
-# Entry Point
+# Main
 # =========================
 
 def main():
-    window = init_window()
-    impl = init_imgui(window)
     stream = init_stream()
+    state = {}
+    state["photogrammetry"] = PhotoGrammetry()
 
-    main_loop(window, impl, stream)
+    c.main(
+        c.orr([
+            c.window("Raw Video", raw_video_panel(stream)),
+            c.window("Processed Video", processed_video_panel(stream)),
+            c.window("Third Video", third_video_panel(stream)),
+            c.window("Options", options_panel(state, stream)),
+        ])
+    )
 
     stream.shutdown()
-    impl.shutdown()
-    glfw.terminate()
 
 
 if __name__ == "__main__":
