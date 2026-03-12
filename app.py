@@ -6,7 +6,7 @@ import datetime
 import imgui
 import os
 
-from helper.monkeyseecrab import ImageRecognizer
+from helper.monkeyseecrab import MultiCrabTracker
 from video_stream import VideoStream
 
 gi.require_version("Gst", "1.0")
@@ -18,14 +18,19 @@ from photogrammetry import PhotoGrammetry
 # =========================
 
 def init_stream():
-    recognizer = ImageRecognizer("assets/monkeydo.png")
+    tracker = MultiCrabTracker()
+
+    # MULTIPLE TRAINING IMAGES
+    tracker.load_training_image(
+        "https://raw.githubusercontent.com/one-degree-north/mate-2026-blue-lobster/main/monkeydo.png"
+    )
     pipeline_desc = """
     udpsrc port=5000 caps="application/x-rtp, media=video, encoding-name=H264, payload=96" !
     rtph264depay ! avdec_h264 !
     videoconvert ! video/x-raw,format=RGB ! tee name=t
     t. ! queue ! appsink name=sink emit-signals=true max-buffers=1 drop=true
     """
-    return VideoStream(pipeline_desc, recognizer)
+    return VideoStream(pipeline_desc, tracker)
 
 # =========================
 # Init font
@@ -83,7 +88,7 @@ def processed_video_panel(stream):
             ratio = min(avail_w / w, avail_h / h)
             panel_w = int(w * ratio)
             panel_h = int(h * ratio)
-
+            imgui.text(f"Crabs Counted: {stream.get_count()}")
             imgui.image(tex_proc, panel_w, panel_h)
 
         yield

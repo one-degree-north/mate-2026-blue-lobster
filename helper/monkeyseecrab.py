@@ -1,61 +1,285 @@
 import cv2
 import numpy as np
+import random
+import requests
+import time
 
-class ImageRecognizer:
-    def __init__(self, template_path: str):
-        # Load the template
-        self.template = cv2.imread(template_path, cv2.IMREAD_GRAYSCALE)
-        if self.template is None:
-            raise ValueError("Failed to load template")
-        self.h, self.w = self.template.shape
+class MultiCrabTracker:
 
-        # Extract edges/contours from template for shape matching
-        self.template_edges = cv2.Canny(self.template, 50, 150)
-        contours, _ = cv2.findContours(self.template_edges, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-        if not contours:
-            raise ValueError("Template has no contours")
-        # Assume largest contour is the object
-        self.template_contour = max(contours, key=cv2.contourArea)
+    def __init__(self,
+                 min_present=8,
+                 distance_thresh=120,
+                 missing_frames=20,
+                 recount_cooldown=60):
 
-    def outline_object(self, frame_rgb: np.ndarray) -> np.ndarray:
-        return frame_rgb
-        output = frame_rgb.copy()
-        gray = cv2.cvtColor(frame_rgb, cv2.COLOR_RGB2GRAY)
+        self.sift = cv2.SIFT_create()
+        self.matcher = cv2.FlannBasedMatcher(dict(algorithm=1, trees=5), dict(checks=50))
 
-        # ---------- Step 1: Rough template matching ----------
-        res = cv2.matchTemplate(gray, self.template, cv2.TM_CCOEFF_NORMED)
-        min_val, max_val, min_loc, max_loc = cv2.minMaxLoc(res)
-        if max_val < 0.5:  # tune threshold
-            return output
+        # MULTIPLE training images
+        self.training_images = []
 
-        top_left = max_loc
-        bottom_right = (top_left[0] + self.w, top_left[1] + self.h)
+        self.tracked = []
+        self.counter = 0
 
-        # ---------- Step 2: Extract edges/contours in candidate region ----------
-        candidate = gray[top_left[1]:bottom_right[1], top_left[0]:bottom_right[0]]
-        candidate_edges = cv2.Canny(candidate, 50, 150)
-        contours, _ = cv2.findContours(candidate_edges, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-        if not contours:
-            return output
-        candidate_contour = max(contours, key=cv2.contourArea)
+        self.min_present = min_present
+        self.distance_thresh = distance_thresh
+        self.max_missing = missing_frames
+        self.recount_cooldown = recount_cooldown
 
-        # ---------- Step 3: Compare shape with template ----------
-        similarity = cv2.matchShapes(self.template_contour, candidate_contour, cv2.CONTOURS_MATCH_I1, 0.0)
-        print(similarity)
+        self.counting = True
+        self.next_id = 0
 
-        if similarity > 25:  # tune threshold, lower is better
-            return output  # shape does not match
-        # ---------- Step 4: Compute homography ----------
-        # Map template corners to candidate region corners
-        template_corners = np.float32([[0,0],[self.w,0],[self.w,self.h],[0,self.h]]).reshape(-1,1,2)
-        candidate_corners = np.float32([[top_left[0], top_left[1]],
-                                        [bottom_right[0], top_left[1]],
-                                        [bottom_right[0], bottom_right[1]],
-                                        [top_left[0], bottom_right[1]]]).reshape(-1,1,2)
-        H, _ = cv2.findHomography(template_corners, candidate_corners)
 
-        # Draw outline
-        proj = cv2.perspectiveTransform(template_corners, H)
-        cv2.polylines(output, [np.int32(proj)], True, (0, 255, 0), 3)
+    # ------------------------------------------------
+    # Load training image from GitHub RAW
+    # ------------------------------------------------
 
-        return output
+    def load_training_image(self, url):
+
+        try:
+            resp = requests.get(url)
+            img_bytes = np.asarray(bytearray(resp.content), dtype=np.uint8)
+            frame = cv2.imdecode(img_bytes, cv2.IMREAD_COLOR)
+        except:
+            print("Failed to load training image")
+            return False
+
+        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        kp, des = self.sift.detectAndCompute(gray, None)
+
+        if des is None or len(kp) < 10:
+            print("Not enough features")
+            return False
+
+        color = (
+            random.randint(50,255),
+            random.randint(50,255),
+            random.randint(50,255)
+        )
+
+        self.training_images.append({
+            "gray": gray,
+            "kp": kp,
+            "des": des,
+            "color": color
+        })
+
+        print("Training image added")
+        return True
+
+
+    # ------------------------------------------------
+    # Detection
+    # ------------------------------------------------
+
+    def detect(self, frame):
+        st = time.time()
+        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        small_gray = cv2.resize(gray, (0, 0), fx=0.5, fy=0.5)
+        kp_frame, des_frame = self.sift.detectAndCompute(small_gray, None)
+        print(time.time()-st)
+
+        detections = []
+
+        if des_frame is not None:
+
+            for train in self.training_images:
+
+                matches = self.matcher.knnMatch(train["des"], des_frame, k=2)
+
+                good = [m for m,n in matches if m.distance < 0.5*n.distance]
+
+                if len(good) < 15:
+                    continue
+
+                src = np.float32(
+                    [train["kp"][m.queryIdx].pt for m in good]
+                ).reshape(-1,1,2)
+
+                dst = np.float32(
+                    [kp_frame[m.trainIdx].pt for m in good]
+                ).reshape(-1,1,2)
+
+                H, mask = cv2.findHomography(src, dst, cv2.RANSAC, 5.0)
+
+                if H is None:
+                    continue
+
+                h,w = train["gray"].shape
+
+                corners = np.float32(
+                    [[0,0],[w,0],[w,h],[0,h]]
+                ).reshape(-1,1,2)
+
+                projected = cv2.perspectiveTransform(corners,H)
+
+                cx = int(np.median(projected[:,0,0]))
+                cy = int(np.median(projected[:,0,1]))
+
+                detections.append({
+                    "centroid": (cx,cy),
+                    "bbox": projected,
+                    "color": train["color"]
+                })
+       
+
+        self.update_tracked(detections)
+
+        # DRAW
+        for crab in self.tracked:
+
+            if crab["frames"] < self.min_present:
+                continue
+
+            box = crab["bbox"]
+
+            x_min = int(np.min(box[:,0,0]))
+            y_min = int(np.min(box[:,0,1]))
+            x_max = int(np.max(box[:,0,0]))
+            y_max = int(np.max(box[:,0,1]))
+
+            cv2.rectangle(
+                frame,
+                (x_min,y_min),
+                (x_max,y_max),
+                crab["color"],
+                3
+            )
+
+            cv2.putText(
+                frame,
+                f"Crab {crab['id']}",
+                (x_min+10,y_min+20),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.7,
+                crab["color"],
+                2
+            )
+        return frame
+
+
+    # ------------------------------------------------
+    # Tracking
+    # ------------------------------------------------
+
+    def update_tracked(self, detections):
+
+        # update existing tracks
+        for crab in self.tracked:
+
+            crab["missing"] += 1
+
+            for det in detections:
+
+                dist = np.hypot(
+                    crab["centroid"][0] - det["centroid"][0],
+                    crab["centroid"][1] - det["centroid"][1]
+                )
+
+                if dist < self.distance_thresh:
+
+                    # centroid smoothing
+                    new_x = int(0.7*crab["centroid"][0] + 0.3*det["centroid"][0])
+                    new_y = int(0.7*crab["centroid"][1] + 0.3*det["centroid"][1])
+
+                    crab["centroid"] = (new_x,new_y)
+                    crab["bbox"] = det["bbox"]
+                    crab["color"] = det["color"]
+
+                    crab["frames"] += 1
+                    crab["missing"] = 0
+
+                    det["matched"] = True
+
+        # add new tracks
+        for det in detections:
+
+            if "matched" in det:
+                continue
+
+            self.tracked.append({
+                "id": self.next_id,
+                "centroid": det["centroid"],
+                "bbox": det["bbox"],
+                "color": det["color"],
+                "frames": 1,
+                "missing": 0,
+                "counted": False,
+                "cooldown": 0
+            })
+
+            self.next_id += 1
+
+
+        # count stable crabs
+        for crab in self.tracked:
+
+            if crab["cooldown"] > 0:
+                crab["cooldown"] -= 1
+
+            if (crab["frames"] >= self.min_present
+                and not crab["counted"]
+                and self.counting
+                and crab["cooldown"] == 0):
+
+                self.counter += 1
+                crab["counted"] = True
+                crab["cooldown"] = self.recount_cooldown
+
+                print("Total crabs:", self.counter)
+
+
+        # remove lost tracks
+        self.tracked = [
+            c for c in self.tracked
+            if c["missing"] < self.max_missing
+        ]
+
+
+# ------------------------------------------------
+# MAIN
+# ------------------------------------------------
+
+def main():
+
+    tracker = MultiCrabTracker()
+
+    # MULTIPLE TRAINING IMAGES
+    tracker.load_training_image(
+        "https://raw.githubusercontent.com/one-degree-north/mate-2026-blue-lobster/main/monkeydo.png"
+    )
+
+    cap = cv2.VideoCapture(0)
+
+    cv2.namedWindow("Crab Tracker", cv2.WINDOW_NORMAL)
+    cv2.resizeWindow("Crab Tracker",1280,720)
+
+    while True:
+
+        ret, frame = cap.read()
+
+        if not ret:
+            continue
+
+        frame = tracker.detect(frame)
+
+        cv2.imshow("Crab Tracker",frame)
+
+        if cv2.getWindowProperty("Crab Tracker",cv2.WND_PROP_VISIBLE) < 1:
+            break
+
+        key = cv2.waitKey(1) & 0xFF
+
+        if key == ord("q"):
+            break
+
+        if key == 32:
+            tracker.counting = not tracker.counting
+
+
+    cap.release()
+    cv2.destroyAllWindows()
+
+
+if __name__ == "__main__":
+    main()

@@ -4,3 +4,4 @@ PyOpenGL
 PyGObject
 opencv-python
 concur
+requests

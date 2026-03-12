@@ -92,7 +92,7 @@ class VideoStream:
         while True:
             frame = self.frame_queue.get()
 
-            processed = self.recognizer.outline_object(frame.copy())
+            processed = self.recognizer.detect(frame.copy())
 
             if processed.shape != frame.shape:
                 processed = frame
@@ -242,3 +242,5 @@ class VideoStream:
 
         print(f"Recording to single MP4 started: {filename}")
         return record_bin, tee_src_pad
+    def get_count(self):
+        return self.recognizer.counter
