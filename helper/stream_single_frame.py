@@ -5,7 +5,7 @@ from gi.repository import Gst, GObject
 Gst.init(None)
 
 # Load image
-img = cv2.imread("monkeydo.png")
+img = cv2.imread("assets/monkeydo.png")
 img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
 h, w, _ = img.shape
 
