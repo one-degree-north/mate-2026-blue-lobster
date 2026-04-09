@@ -12,7 +12,11 @@ class PgmBindings:
     def __init__(self, path: str) -> None:
         self.lib = ctypes.cdll.LoadLibrary(path)
 
-        self.lib.run_photogrammetry_session.argtypes = [ctypes.c_char_p]
+        self.lib.run_photogrammetry_session.argtypes = [
+            ctypes.c_char_p,  # imagesPath
+            ctypes.c_char_p,  # outputPath
+            ctypes.c_int32,  # detailLevel
+        ]
         self.lib.run_photogrammetry_session.restype = None
 
         self.lib.is_completed.argtypes = []
@@ -27,8 +31,8 @@ class PgmBindings:
         self.lib.stop_photogrammetry_session.argtypes = []
         self.lib.stop_photogrammetry_session.restype = None
 
-    def start(self, path: bytes) -> None:
-        return self.lib.run_photogrammetry_session(path)
+    def start(self, path: bytes, output_path: bytes, detail: int = 2) -> None:
+        return self.lib.run_photogrammetry_session(path, output_path, detail)
 
     def stop(self) -> None:
         return self.lib.stop_photogrammetry_session()
@@ -47,15 +51,15 @@ class Photogrammetry:
     def __init__(
         self,
         lib: PgmBindings,
-        input_fps = 15,
+        input_fps=15,
         output_fps: int = 30,
-        output_size: tuple[int, int] = "auto", # (width, height)
+        output_size: tuple[int, int] = "auto",  # (width, height)
     ) -> None:
         self.lib = lib
         self.frame_rate: int = input_fps
         self.target_fps = output_fps
-            
-        self.target_size = output_size # detect auto later
+
+        self.target_size = output_size  # detect auto later
         self._frame_count = 0
         self._saved_frame_count = 0
         self._is_recording = False
@@ -71,12 +75,15 @@ class Photogrammetry:
             return
 
         if self.target_size == "auto":
-            self.target_size = (int(cap.get(cv2.CAP_PROP_FRAME_WIDTH)), int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT)))
-        
+            self.target_size = (
+                int(cap.get(cv2.CAP_PROP_FRAME_WIDTH)),
+                int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT)),
+            )
+
         skip_interval = max(1, round(self.frame_rate / self.target_fps))
 
         if self._frame_count % skip_interval == 0:
-            #frame = cv2.cvtColor(frame, cv2.COLOR_RGBA2BGR)
+            # frame = cv2.cvtColor(frame, cv2.COLOR_RGBA2BGR)
             frame = cv2.resize(frame, self.target_size)
             self._saved_frame_count += 1
             cv2.imwrite(
@@ -97,9 +104,11 @@ class Photogrammetry:
         if self._saved_frame_count == 0:
             print("Warning: no frames were recorded.")
 
-    def start_reconstruction(self):
-        os.makedirs("pgm/reconstruction/model", exist_ok=True)
-        self.lib.start(b"pgm/reconstruction")
+    def start_reconstruction(
+        self, output_path: str = "pgm/reconstruction/out.usdz", detail: int = 2
+    ):
+        os.makedirs(os.path.dirname(output_path), exist_ok=True)
+        self.lib.start(b"pgm/reconstruction", output_path.encode(), detail)
 
     def stop_reconstruction(self):
         self.lib.stop()
@@ -135,7 +144,7 @@ if __name__ == "__main__":
         cap.release()
         photogrammetry.stop_recording()
 
-    photogrammetry.start_reconstruction()
+    photogrammetry.start_reconstruction(detail=4) # todo, move to constructor
 
     # TODO: Use tqmz. and make API more pythononic -- then also expose an feed driven api
 
