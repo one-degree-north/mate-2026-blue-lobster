@@ -6,12 +6,12 @@ import datetime
 import imgui
 import os
 
-from helper.monkeyseecrab import MultiCrabTracker
-from video_stream import VideoStream
+from .monkeyseecrab import MultiCrabTracker
+from .video_stream import VideoStream
 
 gi.require_version("Gst", "1.0")
 from gi.repository import Gst
-from photogrammetry.client import PhotoGrammetry, PgmBindings
+from pgm import Photogrammetry
 
 # =========================
 # Video stream
@@ -208,25 +208,26 @@ def options_panel(state, stream):
 
         if not state["photogrammetry_active"]:
             if state["is_reconstructing"]:
-                
-            imgui.push_style_var(imgui.STYLE_ALPHA, 0.5)
+                imgui.push_style_var(imgui.STYLE_ALPHA, 0.5)
             if imgui.button("Start Photogrammetry"):
-                state["photogrammetry_active"] = True
-                state["photogrammetry"].start_recording()
-            imgui.pop_style_var()
+                if not state["is_reconstructing"]:
+                    state["photogrammetry_active"] = True
+                    state["photogrammetry"].start_recording()
+            if state["is_reconstructing"]:
+                imgui.pop_style_var()
         else:
             if imgui.button("Begin Reconstruction"):
                 state["photogrammetry_active"] = False
                 state["is_reconstructing"] = True
                 state["photogrammetry"].stop_recording()
 
-                def end_callback():
-                    state["is_reconstructing"] = False
-                    print("Photogrammetry reconstruction complete!")
-
                 import threading
                 def start_reconstruction():
-                    state["photogrammetry"].start_reconstruction(end_callback)
+                    state["photogrammetry"].start_reconstruction()
+                    while not state["photogrammetry"].is_completed():
+                        time.sleep(0.1)
+                    state["is_reconstructing"] = False
+                    print("Photogrammetry reconstruction complete!")
 
                 threading.Thread(target=start_reconstruction, daemon=True).start()
 
@@ -245,8 +246,11 @@ def options_panel(state, stream):
 def main():
     stream = init_stream()
     state = {}
-    bindings = PgmBindings("libpgm.dylib")
-    state["photogrammetry"] = PhotoGrammetry(bindings)
+    state["photogrammetry"] = Photogrammetry(
+        input_fps=30,
+        output_fps=5,
+        detail=2,
+    )
 
     c.main(
         c.orr([
