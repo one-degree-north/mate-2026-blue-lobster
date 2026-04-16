@@ -27,3 +27,8 @@ run-dev:
     GST_PID=$!
     trap 'kill "$GST_PID" 2>/dev/null || true' EXIT
     python -m app.app --debug
+
+clean:
+    rm -rf recordings
+    rm -rf pgm-temp
+    

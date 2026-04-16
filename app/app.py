@@ -6,7 +6,7 @@ import concur as c
 import gi
 import imgui
 
-from .monkeyseecrab import MultiCrabTracker
+from .monkeyseecrab import ASSET_DIR, MultiCrabTracker
 from .video_stream import VideoStream
 
 gi.require_version("Gst", "1.0")
@@ -23,9 +23,7 @@ def init_stream():
     tracker = MultiCrabTracker()
 
     # MULTIPLE TRAINING IMAGES
-    tracker.load_training_image(
-        "https://raw.githubusercontent.com/one-degree-north/mate-2026-blue-lobster/main/monkeydo.png"
-    )
+    tracker.load_training_image(os.path.join(ASSET_DIR, "monkeydo.png"))
     pipeline_desc = """
     udpsrc port=5000 caps="application/x-rtp, media=video, encoding-name=H264, payload=96" !
     rtph264depay ! avdec_h264 !

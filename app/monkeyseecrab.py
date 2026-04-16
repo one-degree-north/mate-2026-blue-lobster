@@ -1,8 +1,10 @@
+import os
 import random
 
 import cv2
 import numpy as np
-import requests
+
+ASSET_DIR = os.path.join(os.path.dirname(__file__), "..", "assets")
 
 
 class MultiCrabTracker:
@@ -42,19 +44,20 @@ class MultiCrabTracker:
     # Load Training Image
     # -----------------------------------------
 
-    def load_training_image(self, url):
+    def load_training_image(self, filepath):
 
         try:
-            resp = requests.get(url)
-            img_bytes = np.asarray(bytearray(resp.content), dtype=np.uint8)
-            frame = cv2.imdecode(img_bytes, cv2.IMREAD_COLOR)
+            frame = cv2.imread(filepath)
+            if frame is None:
+                raise Exception("Failed to read image")
         except:
             print("Failed to load training image")
             return False
 
         frame = cv2.resize(frame, (0, 0), fx=self.scale, fy=self.scale)
+        frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
 
-        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        gray = cv2.cvtColor(frame, cv2.COLOR_RGB2GRAY)
         kp, des = self.sift.detectAndCompute(gray, None)
 
         if des is None or len(kp) < 15:
@@ -77,7 +80,7 @@ class MultiCrabTracker:
         self.frame_index += 1
 
         small = cv2.resize(frame, (0, 0), fx=self.scale, fy=self.scale)
-        gray = cv2.cvtColor(small, cv2.COLOR_BGR2GRAY)
+        gray = cv2.cvtColor(small, cv2.COLOR_RGB2GRAY)
 
         detections = []
 
@@ -237,9 +240,7 @@ if __name__ == "__main__":
     tracker = MultiCrabTracker()
 
     # Load your training image
-    tracker.load_training_image(
-        "https://raw.githubusercontent.com/one-degree-north/mate-2026-blue-lobster/main/monkeydo.png"
-    )
+    tracker.load_training_image(os.path.join(ASSET_DIR, "monkeydo.png"))
 
     cap = cv2.VideoCapture(0)
     if not cap.isOpened():

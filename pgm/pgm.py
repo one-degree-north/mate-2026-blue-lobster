@@ -130,7 +130,7 @@ class Photogrammetry:
             self._saved_frame_count += 1
             cv2.imwrite(
                 os.path.join(self.frames_dir, f"frame_{self._saved_frame_count}.png"),
-                frame,
+                cv2.cvtColor(frame, cv2.COLOR_RGB2BGR),
             )
         self._frame_count += 1
 
