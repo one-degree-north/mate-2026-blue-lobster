@@ -327,3 +327,5 @@ iOSInjectionProject/
 ignore/
 pgm-temp/
 output.usdz
+recordings/
+imgui.ini
