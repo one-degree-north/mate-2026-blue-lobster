@@ -1,0 +1,14 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "pgm"
+version = "0.1.0"
+requires-python = ">=3.11"
+dependencies = [
+    "opencv-python>=4.13.0.90",
+]
+
+[tool.hatch.build.targets.wheel]
+include = ["pgm.py", "libPgm.dylib"]

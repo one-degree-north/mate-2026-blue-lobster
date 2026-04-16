@@ -324,5 +324,6 @@ iOSInjectionProject/
 
 # End of https://www.toptal.com/developers/gitignore/api/macos,python,swift,c++
 
-pgm/
 ignore/
+pgm-temp/
+output.usdz

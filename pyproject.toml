@@ -1,9 +1,15 @@
 [project]
 name = "mate-26"
 version = "0.1.0"
-requires-python = ">=3.14"
+requires-python = "~=3.11.0"
 dependencies = [
+    "imgui[glfw]>=2.0.0",
+    "numpy>=2.4.1",
     "opencv-python>=4.13.0.90",
+    "pgm",
+    "pygobject>=3.56.2",
+    "pyopengl>=3.1.10",
+    "requests>=2.33.1",
 ]
 [dependency-groups]
 dev = [
@@ -14,3 +20,11 @@ dev = [
 
 [tool.ruff]
 line-length = 120
+
+[tool.uv.workspace]
+members = [
+    "pgm",
+]
+
+[tool.uv.sources]
+pgm = { workspace = true }
