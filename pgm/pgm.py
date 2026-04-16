@@ -5,9 +5,11 @@ import shutil
 import sys
 import time
 from typing import Literal
+
 import cv2
 
 DYLIB_PATH = os.path.join(os.path.dirname(__file__), "libPgm.dylib")
+
 
 class _PgmModule:
     def __init__(self, path: str) -> None:
@@ -61,7 +63,7 @@ class Photogrammetry:
         *,
         input_fps: int,
         output_fps: int,
-        detail: Literal[0, 1, 2, 3, 4], # 0, 1, 2, 3, 4
+        detail: Literal[0, 1, 2, 3, 4],  # 0, 1, 2, 3, 4
         output_size: tuple[int, int] = "auto",
         temp_dir: str = "pgm-temp/",
         output_path: str = "output.usdz",
@@ -157,9 +159,7 @@ class Photogrammetry:
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(
-        description="Photogrammetry reconstruction from video or image sequence"
-    )
+    parser = argparse.ArgumentParser(description="Photogrammetry reconstruction from video or image sequence")
     parser.add_argument(
         "input_path",
         nargs="?",

@@ -10,7 +10,7 @@ class CustomBuildHook(BuildHookInterface):
         pgm_dir = Path(__file__).parent
         result = subprocess.run(
             ["just", "build"],
-            #["swiftc", "-emit-library", "-o", str(pgm_dir / "libPgm.dylib"), str(pgm_dir / "pgm.swift")],
+            # ["swiftc", "-emit-library", "-o", str(pgm_dir / "libPgm.dylib"), str(pgm_dir / "pgm.swift")],
             capture_output=True,
             text=True,
         )

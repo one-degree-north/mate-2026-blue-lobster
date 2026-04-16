@@ -1,6 +1,11 @@
-import gi, cv2, numpy as np, time
+import time
+
+import cv2
+import gi
+import numpy as np
+
 gi.require_version("Gst", "1.0")
-from gi.repository import Gst, GObject
+from gi.repository import GObject, Gst
 
 Gst.init(None)
 
@@ -29,6 +34,6 @@ try:
         buf.fill(0, img.tobytes())
         buf.duration = Gst.util_uint64_scale_int(1, Gst.SECOND, 30)  # frame duration
         ret = appsrc.emit("push-buffer", buf)
-        time.sleep(1/30)
+        time.sleep(1 / 30)
 except KeyboardInterrupt:
     pipeline.set_state(Gst.State.NULL)

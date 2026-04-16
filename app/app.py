@@ -1,21 +1,23 @@
+import datetime
+import os
 import time
-import gi
 
 import concur as c
-import datetime
+import gi
 import imgui
-import os
 
 from .monkeyseecrab import MultiCrabTracker
 from .video_stream import VideoStream
 
 gi.require_version("Gst", "1.0")
 from gi.repository import Gst
+
 from pgm import Photogrammetry
 
 # =========================
 # Video stream
 # =========================
+
 
 def init_stream():
     tracker = MultiCrabTracker()
@@ -32,19 +34,21 @@ def init_stream():
     """
     return VideoStream(pipeline_desc, tracker)
 
+
 # =========================
 # Init font
 # =========================
+
 
 def set_global_font_once():
     io = imgui.get_io()
     io.font_global_scale = 1.5  # 1.2, 1.5, 2.0
 
 
-
 # =========================
 # UI Widgets
 # =========================
+
 
 def snap_to_grid(size=20):
     x, y = imgui.get_window_position()
@@ -58,7 +62,7 @@ def raw_video_panel(stream):
     while True:
         snap_to_grid(50)
         stream.update()
-        
+
         textures = stream.get_textures()
         tex_raw = textures[0] if textures else None
         shape = stream.get_frame_shape()
@@ -66,7 +70,7 @@ def raw_video_panel(stream):
         if shape and tex_raw is not None:
             h, w = shape
             avail_w, avail_h = imgui.get_content_region_available()
-            
+
             ratio = min(avail_w / w, avail_h / h)
             panel_w = int(w * ratio)
             panel_h = int(h * ratio)
@@ -79,11 +83,12 @@ def raw_video_panel(stream):
 
         yield
 
+
 def processed_video_panel(stream):
     while True:
         snap_to_grid(50)
         stream.update()
-        
+
         textures = stream.get_textures()
         tex_proc = textures[1] if textures else None
         shape = stream.get_frame_shape()
@@ -91,21 +96,22 @@ def processed_video_panel(stream):
         if shape and tex_proc is not None:
             h, w = shape
             avail_w, avail_h = imgui.get_content_region_available()
-            
+
             imgui.text_colored(f"STATUS: TRACKING", 0.3, 1.0, 0.3, 1.0)
             imgui.same_line()
             imgui.text(f" | Crabs Counted: {stream.get_count()}")
-            
-            ratio = min(avail_w / w, (avail_h - 30) / h) # -30 for the text header
+
+            ratio = min(avail_w / w, (avail_h - 30) / h)  # -30 for the text header
             panel_w = int(w * ratio)
             panel_h = int(h * ratio)
-            
+
             imgui.image(tex_proc, panel_w, panel_h)
         else:
             imgui.text_colored("NO PROCESSING DATA", 1.0, 0.5, 0.0, 1.0)
             imgui.text_disabled("Ensure recognizer is initialized.")
 
         yield
+
 
 def third_video_panel(stream):
     while True:
@@ -131,14 +137,13 @@ def video_recording_panel(state, stream):
     # --- Initialization ---
     if "recording" not in state:
         state["recording"] = False
-    
+
     # --- Cooldown Logic ---
     current_time = time.time()
 
     button_label = "STOP Recording" if state["recording"] else "START Recording"
-    
+
     if imgui.button(button_label):
-        
         if not state["recording"]:
             # START
             state["active_bin"], state["active_pad"] = stream.start_recording()
@@ -161,13 +166,14 @@ def video_recording_panel(state, stream):
             imgui.text_colored("REC", 1.0, 0.0, 0.0, 1.0)
         else:
             imgui.text("   ")
-        
+
         imgui.same_line()
-        
+
         elapsed = current_time - state["rec_start_time"]
         imgui.text(f"{int(elapsed // 60):02d}:{int(elapsed % 60):02d}")
     else:
         imgui.text_disabled("Standby")
+
 
 def options_panel(state, stream):
     # Initialize state variables
@@ -193,15 +199,15 @@ def options_panel(state, stream):
                 if not os.path.isdir("recordings"):
                     os.makedirs("recordings/")
                 import cv2
-                ts = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
+
+                ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
                 filename = f"recordings/snapshot_{ts}.png"
                 cv2.imwrite(filename, stream.raw_frame)
-        
+
         imgui.spacing()
         imgui.separator()
         imgui.spacing()
 
-        
         if state["photogrammetry_active"]:
             if stream.raw_frame is not None:
                 state["photogrammetry"].receive_frame(stream.raw_frame)
@@ -222,6 +228,7 @@ def options_panel(state, stream):
                 state["photogrammetry"].stop_recording()
 
                 import threading
+
                 def start_reconstruction():
                     state["photogrammetry"].start_reconstruction()
                     while not state["photogrammetry"].is_completed():
@@ -232,16 +239,21 @@ def options_panel(state, stream):
                 threading.Thread(target=start_reconstruction, daemon=True).start()
 
         if state["is_reconstructing"]:
-            imgui.progress_bar(state['photogrammetry'].get_progress(), size=(-1.0, 0.0), overlay=f"Reconstruction Progress: {state['photogrammetry'].get_progress()}")
+            imgui.progress_bar(
+                state["photogrammetry"].get_progress(),
+                size=(-1.0, 0.0),
+                overlay=f"Reconstruction Progress: {state['photogrammetry'].get_progress()}",
+            )
             imgui.text(f"ETA: {state['photogrammetry'].get_eta():.1f}s")
         elif state["photogrammetry_active"]:
             imgui.text_colored("Recording frames...", 0.3, 1.0, 0.3, 1.0)
         yield
-        
+
 
 # =========================
 # Main
 # =========================
+
 
 def main():
     stream = init_stream()
@@ -253,12 +265,14 @@ def main():
     )
 
     c.main(
-        c.orr([
-            c.window("Raw Video", raw_video_panel(stream)),
-            c.window("Processed Video", processed_video_panel(stream)),
-            c.window("Third Video", third_video_panel(stream)),
-            c.window("Options", options_panel(state, stream)),
-        ])
+        c.orr(
+            [
+                c.window("Raw Video", raw_video_panel(stream)),
+                c.window("Processed Video", processed_video_panel(stream)),
+                c.window("Third Video", third_video_panel(stream)),
+                c.window("Options", options_panel(state, stream)),
+            ]
+        )
     )
 
     stream.shutdown()
