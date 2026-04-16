@@ -11,7 +11,7 @@ from video_stream import VideoStream
 
 gi.require_version("Gst", "1.0")
 from gi.repository import Gst
-from photogrammetry import PhotoGrammetry
+from photogrammetry.client import PhotoGrammetry, PgmBindings
 
 # =========================
 # Video stream
@@ -57,39 +57,53 @@ def raw_video_panel(stream):
     set_global_font_once()
     while True:
         snap_to_grid(50)
-
         stream.update()
-        tex_raw, _, _ = stream.get_textures()
+        
+        textures = stream.get_textures()
+        tex_raw = textures[0] if textures else None
         shape = stream.get_frame_shape()
 
-        if shape:
+        if shape and tex_raw is not None:
             h, w = shape
             avail_w, avail_h = imgui.get_content_region_available()
+            
             ratio = min(avail_w / w, avail_h / h)
             panel_w = int(w * ratio)
             panel_h = int(h * ratio)
 
             imgui.image(tex_raw, panel_w, panel_h)
+        else:
+            imgui.text_disabled("Searching for RAW signal...")
+            imgui.separator()
+            imgui.text("Check UDP port 5000")
 
         yield
-
 
 def processed_video_panel(stream):
     while True:
         snap_to_grid(50)
-
         stream.update()
-        _, tex_proc, _ = stream.get_textures()
+        
+        textures = stream.get_textures()
+        tex_proc = textures[1] if textures else None
         shape = stream.get_frame_shape()
 
-        if shape:
+        if shape and tex_proc is not None:
             h, w = shape
             avail_w, avail_h = imgui.get_content_region_available()
-            ratio = min(avail_w / w, avail_h / h)
+            
+            imgui.text_colored(f"STATUS: TRACKING", 0.3, 1.0, 0.3, 1.0)
+            imgui.same_line()
+            imgui.text(f" | Crabs Counted: {stream.get_count()}")
+            
+            ratio = min(avail_w / w, (avail_h - 30) / h) # -30 for the text header
             panel_w = int(w * ratio)
             panel_h = int(h * ratio)
-            imgui.text(f"Crabs Counted: {stream.get_count()}")
+            
             imgui.image(tex_proc, panel_w, panel_h)
+        else:
+            imgui.text_colored("NO PROCESSING DATA", 1.0, 0.5, 0.0, 1.0)
+            imgui.text_disabled("Ensure recognizer is initialized.")
 
         yield
 
@@ -184,38 +198,36 @@ def options_panel(state, stream):
 
         if "photogrammetry_active" not in state or not state["photogrammetry_active"]:
             state["photogrammetry_active"] = False
+        
+        if state["photogrammetry_active"]:
+            if stream.raw_frame is not None:
+                    print("hello")
+                    state["photogrammetry"].receive_frame(stream.raw_frame)
+
         if not state["photogrammetry_active"]:
             if imgui.button("Start Photogrammetary"):
                 state["photogrammetry_active"] = True
                 print("Starting photogrammetry...")
+                state["photogrammetry"].start_recording()
 
-                # Optionally, capture a few frames for reconstruction
-                import threading
-
-                def run_photogrammetry():
-                    # Example: send the latest raw frame
-                    if stream.raw_frame is not None:
-                        state["photogrammetry"].send_iframe(stream.raw_frame)
-
-                threading.Thread(target=run_photogrammetry, daemon=True).start()
         else:
             if imgui.button("Begin Reconstruction"):
                 print("ending photogrammetry...")
                 state["photogrammetry_active"] = False
-
-                # Capture frames asynchronously
+                state["photogrammetry_reconstruction"] = True
+                state["photogrammetry"].stop_recording()
                 def end_callback():
                     state["photogrammetry_active"] = False
                     print("Photogrammetry reconstruction complete!")
 
-                # Optionally, capture a few frames for reconstruction
                 import threading
 
                 def start_reconstruction():
-                    # Start the (mock) reconstruction
                     state["photogrammetry"].start_reconstruction(end_callback)
 
                 threading.Thread(target=start_reconstruction, daemon=True).start()
+        imgui.text(f"ETA: {state['photogrammetry'].get_eta():.1f}s")
+
 
         yield
         
@@ -227,7 +239,8 @@ def options_panel(state, stream):
 def main():
     stream = init_stream()
     state = {}
-    state["photogrammetry"] = PhotoGrammetry()
+    bindings = PgmBindings("libpgm.dylib")
+    state["photogrammetry"] = PhotoGrammetry(bindings)
 
     c.main(
         c.orr([

@@ -100,7 +100,6 @@ class VideoStream:
             with self.lock:
                 self.raw_frame = frame
                 self.processed_frame = processed
-
     # ---------- OpenGL ----------
     def _update_texture(self, tex, frame):
         if frame is None:
