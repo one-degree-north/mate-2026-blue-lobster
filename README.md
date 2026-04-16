@@ -9,4 +9,15 @@ source .venv/bin/activate
 uv sync
 ```
 
-Ins
+Install the following:
+```
+brew install gstreamer just
+```
+
+## Running
+```
+just run-dev # Starts test gstreamer pipeline
+
+just run-debug
+just run
+```

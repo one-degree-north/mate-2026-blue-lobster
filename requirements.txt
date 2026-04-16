@@ -1,7 +1,0 @@
-glfw
-imgui
-PyOpenGL
-PyGObject
-opencv-python
-concur
-requests
