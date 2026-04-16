@@ -1,20 +1,22 @@
+import argparse
 import ctypes
 import os
 import shutil
 import sys
 import time
-from typing import Callable
-
+from typing import Literal
 import cv2
 
 
-class PgmBindings:
+
+class _PgmModule:
     def __init__(self, path: str) -> None:
         self.lib = ctypes.cdll.LoadLibrary(path)
 
         self.lib.run_photogrammetry_session.argtypes = [
             ctypes.c_char_p,  # imagesPath
             ctypes.c_char_p,  # outputPath
+            ctypes.c_char_p,  # tempDir
             ctypes.c_int32,  # detailLevel
         ]
         self.lib.run_photogrammetry_session.restype = None
@@ -31,8 +33,8 @@ class PgmBindings:
         self.lib.stop_photogrammetry_session.argtypes = []
         self.lib.stop_photogrammetry_session.restype = None
 
-    def start(self, path: bytes, output_path: bytes, detail: int = 2) -> None:
-        return self.lib.run_photogrammetry_session(path, output_path, detail)
+    def start(self, path: bytes, output_path: bytes, temp_dir: bytes, detail: int = 2) -> None:
+        return self.lib.run_photogrammetry_session(path, output_path, temp_dir, detail)
 
     def stop(self) -> None:
         return self.lib.stop_photogrammetry_session()
@@ -48,18 +50,34 @@ class PgmBindings:
 
 
 class Photogrammetry:
+    """Unified API for photogrammetry with two modes:
+
+    1. File mode: pass cv2.VideoCapture, call .process()
+    2. Streaming mode: call .receive_frame() manually
+    """
+
     def __init__(
         self,
-        lib: PgmBindings,
-        input_fps=15,
-        output_fps: int = 30,
-        output_size: tuple[int, int] = "auto",  # (width, height)
+        lib: _PgmModule,
+        *,
+        input_fps: int,
+        output_fps: int,
+        detail: Literal[0, 1, 2, 3, 4], # 0, 1, 2, 3, 4
+        output_size: tuple[int, int] = "auto",
+        temp_dir: str = "pgm/",
+        output_path: str = "output.usdz",
+        video_capture: cv2.VideoCapture = None,
     ) -> None:
         self.lib = lib
-        self.frame_rate: int = input_fps
+        self.video_capture = video_capture
+        self.frame_rate = input_fps
         self.target_fps = output_fps
+        self.target_size = output_size
+        self.detail = detail
 
-        self.target_size = output_size  # detect auto later
+        self.temp_dir = temp_dir
+        self.output_path = output_path
+        self.frames_dir = os.path.join(self.temp_dir, "reconstruction")
         self._frame_count = 0
         self._saved_frame_count = 0
         self._is_recording = False
@@ -69,84 +87,145 @@ class Photogrammetry:
             shutil.rmtree(path)
         os.makedirs(path, exist_ok=True)
 
-    def receive_frame(self, frame: cv2.typing.MatLike) -> None:
+    def _extract_frames(self) -> None:
+        self.start_recording()
+        while True:
+            success, frame = self.video_capture.read()
+            if not success:
+                break
+            self.receive_frame(frame)
+        self.video_capture.set(cv2.CAP_PROP_POS_FRAMES, 0)
+        self.stop_recording()
 
-        if not self._is_recording:
-            return
-
-        if self.target_size == "auto":
-            self.target_size = (
-                int(cap.get(cv2.CAP_PROP_FRAME_WIDTH)),
-                int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT)),
-            )
-
-        skip_interval = max(1, round(self.frame_rate / self.target_fps))
-
-        if self._frame_count % skip_interval == 0:
-            # frame = cv2.cvtColor(frame, cv2.COLOR_RGBA2BGR)
-            frame = cv2.resize(frame, self.target_size)
-            self._saved_frame_count += 1
-            cv2.imwrite(
-                f"pgm/reconstruction/frame_{self._saved_frame_count}.png",
-                frame,
-            )
-
-        self._frame_count += 1
+    def process(self) -> None:
+        """Extract all frames from video_capture and start reconstruction."""
+        assert self.video_capture is not None, (
+            "process() requires a cv2.VideoCapture — pass video_capture= to the constructor"
+        )
+        self._extract_frames()
+        self.start_reconstruction()
 
     def start_recording(self) -> None:
-        self._reset_dir("pgm/reconstruction")
+        assert self.video_capture is None, (
+            "start_recording() / receive_frame() are for streaming mode — "
+            "do not pass video_capture= to the constructor when using this API"
+        )
+        self._reset_dir(self.frames_dir)
         self._frame_count = 0
         self._saved_frame_count = 0
         self._is_recording = True
 
-    def stop_recording(self):
+    def receive_frame(self, frame: cv2.typing.MatLike) -> None:
+        assert self.video_capture is None, (
+            "receive_frame() is for streaming mode — do not pass video_capture= to the constructor when using this API"
+        )
+        if not self._is_recording:
+            return
+        if self.target_size == "auto":
+            self.target_size = (frame.shape[1], frame.shape[0])
+        skip_interval = max(1, round(self.frame_rate / self.target_fps))
+        if self._frame_count % skip_interval == 0:
+            frame = cv2.resize(frame, self.target_size)
+            self._saved_frame_count += 1
+            cv2.imwrite(
+                os.path.join(self.frames_dir, f"frame_{self._saved_frame_count}.png"),
+                frame,
+            )
+        self._frame_count += 1
+
+    def stop_recording(self) -> None:
         self._is_recording = False
         if self._saved_frame_count == 0:
             print("Warning: no frames were recorded.")
 
-    def start_reconstruction(
-        self, output_path: str = "pgm/reconstruction/out.usdz", detail: int = 2
-    ):
-        os.makedirs(os.path.dirname(output_path), exist_ok=True)
-        self.lib.start(b"pgm/reconstruction", output_path.encode(), detail)
+    def start_reconstruction(self) -> None:
+        output_dir = os.path.dirname(self.output_path)
+        if output_dir:
+            os.makedirs(output_dir, exist_ok=True)
+        self.lib.start(self.frames_dir.encode(), self.output_path.encode(), self.temp_dir.encode(), self.detail)
 
-    def stop_reconstruction(self):
+    def stop_reconstruction(self) -> None:
         self.lib.stop()
 
-    def set_frame_rate(self, _, frame_rate):
-        self.frame_rate = frame_rate
-
-    def get_progress(self):
+    def get_progress(self) -> float:
         return self.lib.get_progress()
 
-    def get_eta(self):
+    def get_eta(self) -> float:
         return self.lib.get_eta()
 
-    def is_completed(self):
+    def is_completed(self) -> bool:
         return self.lib.is_completed()
 
 
 if __name__ == "__main__":
-    bindings = PgmBindings("libpgm.dylib")
-    photogrammetry = Photogrammetry(bindings, input_fps=30, output_fps=30)
+    parser = argparse.ArgumentParser(
+        description="Photogrammetry reconstruction from video or image sequence"
+    )
+    parser.add_argument(
+        "input_path",
+        nargs="?",
+        default=None,
+        help="Path to input video file (required unless --skip-cv is used)",
+    )
+    parser.add_argument(
+        "-o",
+        "--output",
+        dest="output_path",
+        default="output.usdz",
+        help="Path to output reconstruction file (default: output.usdz)",
+    )
+    parser.add_argument(
+        "--skip-cv",
+        action="store_true",
+        help="Skip video processing and only run reconstruction",
+    )
+    parser.add_argument(
+        "--detail",
+        type=int,
+        default=4,
+        choices=[0, 1, 2, 3, 4],
+        help="Detail level for reconstruction (default: 4)",
+    )
+    parser.add_argument(
+        "--input-fps",
+        type=int,
+        default=30,
+        help="Input video frames per second (default: 30)",
+    )
+    parser.add_argument(
+        "--output-fps",
+        type=int,
+        default=30,
+        help="Output frames per second for sampling (default: 30)",
+    )
 
-    if "--skip-cv" not in sys.argv:
+    args = parser.parse_args()
+
+    # Validate input_path requirement
+    if not args.skip_cv and args.input_path is None:
+        parser.error("input_path is required unless --skip-cv is used")
+
+    bindings = _PgmModule("libpgm.dylib")
+    photogrammetry = Photogrammetry(
+        bindings,
+        input_fps=args.input_fps,
+        output_fps=args.output_fps,
+        detail=args.detail,
+        output_path=args.output_path,
+    )
+
+    if not args.skip_cv:
         photogrammetry.start_recording()
-
-        cap = cv2.VideoCapture(sys.argv[1])
-
+        cap = cv2.VideoCapture(args.input_path)
         while True:
             success, frame = cap.read()
             if not success:
                 break
             photogrammetry.receive_frame(frame)
-
         cap.release()
         photogrammetry.stop_recording()
 
-    photogrammetry.start_reconstruction(detail=4) # todo, move to constructor
-
-    # TODO: Use tqmz. and make API more pythononic -- then also expose an feed driven api
+    photogrammetry.start_reconstruction()
 
     print("Reconstruction started...")
 

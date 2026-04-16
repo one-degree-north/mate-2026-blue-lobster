@@ -91,10 +91,12 @@ public func StopPhotogrammetrySession() {
 public func RunPhotogrammetrySession(
     imagesPath: UnsafePointer<CChar>,
     outputPath: UnsafePointer<CChar>,
+    tempDir: UnsafePointer<CChar>,
     detailLevel: Int32
 ) {
     let imagesPath = String(cString: imagesPath)
     let outputPath = String(cString: outputPath)
+    let tempDir = String(cString: tempDir)
 
     let detail: PhotogrammetrySession.Request.Detail
     switch detailLevel {
@@ -152,7 +154,7 @@ public func RunPhotogrammetrySession(
                 let modelAsset = MDLAsset(url: URL(filePath: outputPath))
                 modelAsset.loadTextures()
 
-                let objPath = URL(filePath: outputPath).deletingLastPathComponent().appending(component: "model").appending(component: "out.obj")
+                let objPath = URL(filePath: tempDir, directoryHint: .isDirectory).appending(component: "model").appending(component: "out.obj")
                 try? FileManager.default.createDirectory(at: objPath.deletingLastPathComponent(), withIntermediateDirectories: true)
 
                 do {
