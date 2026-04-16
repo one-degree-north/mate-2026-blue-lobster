@@ -170,6 +170,12 @@ def video_recording_panel(state, stream):
         imgui.text_disabled("Standby")
 
 def options_panel(state, stream):
+    # Initialize state variables
+    if "photogrammetry_active" not in state:
+        state["photogrammetry_active"] = False
+    if "is_reconstructing" not in state:
+        state["is_reconstructing"] = False
+
     while True:
         snap_to_grid(50)
         imgui.text("Options")
@@ -181,6 +187,7 @@ def options_panel(state, stream):
         imgui.separator()
         imgui.spacing()
 
+        # Snapshot Logic
         if imgui.button("Take Snapshot"):
             if stream.raw_frame is not None:
                 if not os.path.isdir("recordings"):
@@ -189,46 +196,45 @@ def options_panel(state, stream):
                 ts = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
                 filename = f"recordings/snapshot_{ts}.png"
                 cv2.imwrite(filename, stream.raw_frame)
-                print(f"Snapshot saved: {filename}")
         
         imgui.spacing()
-        
         imgui.separator()
         imgui.spacing()
 
-        if "photogrammetry_active" not in state or not state["photogrammetry_active"]:
-            state["photogrammetry_active"] = False
         
         if state["photogrammetry_active"]:
             if stream.raw_frame is not None:
-                    print("hello")
-                    state["photogrammetry"].receive_frame(stream.raw_frame)
+                state["photogrammetry"].receive_frame(stream.raw_frame)
 
         if not state["photogrammetry_active"]:
-            if imgui.button("Start Photogrammetary"):
+            if state["is_reconstructing"]:
+                
+            imgui.push_style_var(imgui.STYLE_ALPHA, 0.5)
+            if imgui.button("Start Photogrammetry"):
                 state["photogrammetry_active"] = True
-                print("Starting photogrammetry...")
                 state["photogrammetry"].start_recording()
-
+            imgui.pop_style_var()
         else:
             if imgui.button("Begin Reconstruction"):
-                print("ending photogrammetry...")
                 state["photogrammetry_active"] = False
-                state["photogrammetry_reconstruction"] = True
+                state["is_reconstructing"] = True
                 state["photogrammetry"].stop_recording()
+
                 def end_callback():
-                    state["photogrammetry_active"] = False
+                    state["is_reconstructing"] = False
                     print("Photogrammetry reconstruction complete!")
 
                 import threading
-
                 def start_reconstruction():
                     state["photogrammetry"].start_reconstruction(end_callback)
 
                 threading.Thread(target=start_reconstruction, daemon=True).start()
-        imgui.text(f"ETA: {state['photogrammetry'].get_eta():.1f}s")
 
-
+        if state["is_reconstructing"]:
+            imgui.progress_bar(state['photogrammetry'].get_progress(), size=(-1.0, 0.0), overlay=f"Reconstruction Progress: {state['photogrammetry'].get_progress()}")
+            imgui.text(f"ETA: {state['photogrammetry'].get_eta():.1f}s")
+        elif state["photogrammetry_active"]:
+            imgui.text_colored("Recording frames...", 0.3, 1.0, 0.3, 1.0)
         yield
         
 
