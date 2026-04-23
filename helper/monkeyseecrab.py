@@ -1,6 +1,7 @@
 import cv2
 import numpy as np
 import random
+import os
 import requests
 
 class MultiCrabTracker:
@@ -45,15 +46,19 @@ class MultiCrabTracker:
     # Load Training Image
     # -----------------------------------------
 
-    def load_training_image(self, url):
-
-        try:
-            resp = requests.get(url)
-            img_bytes = np.asarray(bytearray(resp.content), dtype=np.uint8)
-            frame = cv2.imdecode(img_bytes, cv2.IMREAD_COLOR)
-        except:
-            print("Failed to load training image")
+    def load_training_image(self, file_path):
+        # Check if the file actually exists first
+        if not os.path.exists(file_path):
+            print(f"File not found: {file_path}")
             return False
+
+        # Load the image directly from the local path
+        frame = cv2.imread(file_path, cv2.IMREAD_COLOR)
+
+        if frame is None:
+            print("Failed to decode image (file might be corrupted or unsupported)")
+            return False
+                    
 
         frame = cv2.resize(frame,(0,0),fx=self.scale,fy=self.scale)
 
@@ -86,70 +91,73 @@ class MultiCrabTracker:
     # -----------------------------------------
 
     def detect(self, frame):
-        return frame
-        self.frame_index += 1
+        # return frame
+        try:
+                
+            self.frame_index += 1
 
-        small = cv2.resize(frame,(0,0),fx=self.scale,fy=self.scale)
-        gray = cv2.cvtColor(small, cv2.COLOR_BGR2GRAY)
+            small = cv2.resize(frame,(0,0),fx=self.scale,fy=self.scale)
+            gray = cv2.cvtColor(small, cv2.COLOR_BGR2GRAY)
 
-        detections = []
+            detections = []
 
-        # skip detection some frames
-        if self.frame_index % self.detection_interval == 0:
+            # skip detection some frames
+            if self.frame_index % self.detection_interval == 0:
 
-            kp_frame, des_frame = self.sift.detectAndCompute(gray, None)
+                kp_frame, des_frame = self.sift.detectAndCompute(gray, None)
 
-            if des_frame is not None:
+                if des_frame is not None:
 
-                for train in self.training_images:
+                    for train in self.training_images:
+                        matches = self.matcher.knnMatch(train["des"], des_frame, k=2)
 
-                    matches = self.matcher.knnMatch(train["des"], des_frame, k=2)
+                        good = []
+                        for m,n in matches:
+                            if m.distance < 0.55*n.distance:
+                                good.append(m)
 
-                    good = []
-                    for m,n in matches:
-                        if m.distance < 0.55*n.distance:
-                            good.append(m)
+                        if len(good) < 18:
+                            continue
 
-                    if len(good) < 18:
-                        continue
+                        src = np.float32(
+                            [train["kp"][m.queryIdx].pt for m in good]
+                        ).reshape(-1,1,2)
 
-                    src = np.float32(
-                        [train["kp"][m.queryIdx].pt for m in good]
-                    ).reshape(-1,1,2)
+                        dst = np.float32(
+                            [kp_frame[m.trainIdx].pt for m in good]
+                        ).reshape(-1,1,2)
 
-                    dst = np.float32(
-                        [kp_frame[m.trainIdx].pt for m in good]
-                    ).reshape(-1,1,2)
+                        H, mask = cv2.findHomography(src, dst, cv2.RANSAC, 5.0)
 
-                    H, mask = cv2.findHomography(src, dst, cv2.RANSAC, 5.0)
+                        if H is None:
+                            continue
 
-                    if H is None:
-                        continue
+                        h,w = train["gray"].shape
 
-                    h,w = train["gray"].shape
+                        corners = np.float32(
+                            [[0,0],[w,0],[w,h],[0,h]]
+                        ).reshape(-1,1,2)
 
-                    corners = np.float32(
-                        [[0,0],[w,0],[w,h],[0,h]]
-                    ).reshape(-1,1,2)
+                        projected = cv2.perspectiveTransform(corners,H)
 
-                    projected = cv2.perspectiveTransform(corners,H)
+                        projected /= self.scale
 
-                    projected /= self.scale
+                        cx = int(np.median(projected[:,0,0]))
+                        cy = int(np.median(projected[:,0,1]))
 
-                    cx = int(np.median(projected[:,0,0]))
-                    cy = int(np.median(projected[:,0,1]))
+                        detections.append({
+                            "centroid": (cx,cy),
+                            "bbox": projected,
+                            "color": train["color"]
+                        })
 
-                    detections.append({
-                        "centroid": (cx,cy),
-                        "bbox": projected,
-                        "color": train["color"]
-                    })
+            self.update_tracked(detections)
 
-        self.update_tracked(detections)
+            self.draw(frame)
 
-        self.draw(frame)
-
-        return frame
+            return frame
+        except:
+            return frame
 
 
     # -----------------------------------------
@@ -277,20 +285,6 @@ class MultiCrabTracker:
                     1,
                     (0,0,255),
                     3)
-
-        cv2.putText(frame,"SPACE = Start/Stop Counting",
-                    (20,90),
-                    cv2.FONT_HERSHEY_SIMPLEX,
-                    0.7,
-                    (255,255,255),
-                    2)
-
-        cv2.putText(frame,"Q = Quit",
-                    (20,120),
-                    cv2.FONT_HERSHEY_SIMPLEX,
-                    0.7,
-                    (255,255,255),
-                    2)
 
 
 # -----------------------------------------

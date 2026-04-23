@@ -18,11 +18,11 @@ from photogrammetry.client import PhotoGrammetry, PgmBindings
 # =========================
 
 def init_stream():
-    tracker = MultiCrabTracker()
+    tracker = MultiCrabTracker(detection_interval=20)
 
     # MULTIPLE TRAINING IMAGES
     tracker.load_training_image(
-        "https://raw.githubusercontent.com/one-degree-north/mate-2026-blue-lobster/main/monkeydo.png"
+        "/Users/aryanmahajan/Documents/PROJECTS/mate-2026-blue-lobster/helper/reference.png"
     )
     pipeline_desc = """
     udpsrc port=5000 caps="application/x-rtp, media=video, encoding-name=H264, payload=96" !
@@ -54,7 +54,6 @@ def snap_to_grid(size=20):
 
 
 def raw_video_panel(stream):
-    set_global_font_once()
     while True:
         snap_to_grid(50)
         stream.update()
@@ -80,6 +79,7 @@ def raw_video_panel(stream):
         yield
 
 def processed_video_panel(stream):
+    set_global_font_once()
     while True:
         snap_to_grid(50)
         stream.update()
@@ -208,31 +208,37 @@ def options_panel(state, stream):
 
         if not state["photogrammetry_active"]:
             if state["is_reconstructing"]:
-                
-            imgui.push_style_var(imgui.STYLE_ALPHA, 0.5)
-            if imgui.button("Start Photogrammetry"):
+                imgui.push_style_var(imgui.STYLE_ALPHA, 0.5)
+            if imgui.button("Start Photogrammetry") and not state["is_reconstructing"]:
                 state["photogrammetry_active"] = True
                 state["photogrammetry"].start_recording()
-            imgui.pop_style_var()
+            if state["is_reconstructing"]:
+                imgui.pop_style_var()
         else:
-            if imgui.button("Begin Reconstruction"):
+            can_stop = state["photogrammetry"].can_stop_recording()
+            if not can_stop:
+                imgui.push_style_var(imgui.STYLE_ALPHA, 0.5)
+            if imgui.button("Begin Reconstruction") and can_stop:
                 state["photogrammetry_active"] = False
                 state["is_reconstructing"] = True
                 state["photogrammetry"].stop_recording()
 
                 def end_callback():
-                    state["is_reconstructing"] = False
-                    print("Photogrammetry reconstruction complete!")
+                    pass
 
                 import threading
                 def start_reconstruction():
                     state["photogrammetry"].start_reconstruction(end_callback)
 
                 threading.Thread(target=start_reconstruction, daemon=True).start()
+            if not can_stop:
+                imgui.pop_style_var()
 
         if state["is_reconstructing"]:
-            imgui.progress_bar(state['photogrammetry'].get_progress(), size=(-1.0, 0.0), overlay=f"Reconstruction Progress: {state['photogrammetry'].get_progress()}")
+            imgui.progress_bar(state['photogrammetry'].get_progress(), size=(-1.0, 0.0), overlay=f"Reconstruction Progress: {100*state['photogrammetry'].get_progress():.2f}%")
             imgui.text(f"ETA: {state['photogrammetry'].get_eta():.1f}s")
+            if (state['photogrammetry'].get_progress()==1.0):
+                state["is_reconstructing"]=False
         elif state["photogrammetry_active"]:
             imgui.text_colored("Recording frames...", 0.3, 1.0, 0.3, 1.0)
         yield
@@ -250,9 +256,9 @@ def main():
 
     c.main(
         c.orr([
-            c.window("Raw Video", raw_video_panel(stream)),
+            # c.window("Raw Video", raw_video_panel(stream)),
             c.window("Processed Video", processed_video_panel(stream)),
-            c.window("Third Video", third_video_panel(stream)),
+            # c.window("Third Video", third_video_panel(stream)),
             c.window("Options", options_panel(state, stream)),
         ])
     )
