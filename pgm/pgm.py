@@ -61,8 +61,8 @@ class Photogrammetry:
     def __init__(
         self,
         *,
-        input_fps: int,
-        output_fps: int,
+        video_fps: int,
+        target_fps: int,
         detail: Literal[0, 1, 2, 3, 4],  # 0, 1, 2, 3, 4
         output_size: tuple[int, int] = "auto",
         temp_dir: str = "pgm-temp/",
@@ -71,8 +71,9 @@ class Photogrammetry:
     ) -> None:
         self.lib = _PgmModule(path=DYLIB_PATH)
         self.video_capture = video_capture
-        self.frame_rate = input_fps
-        self.target_fps = output_fps
+        self.video_fps = video_fps
+        self.target_fps = target_fps
+
         self.target_size = output_size
         self.detail = detail
 
@@ -124,14 +125,11 @@ class Photogrammetry:
             return
         if self.target_size == "auto":
             self.target_size = (frame.shape[1], frame.shape[0])
-        skip_interval = max(1, round(self.frame_rate / self.target_fps))
+        skip_interval = max(1, round(self.video_fps / self.target_fps))
         if self._frame_count % skip_interval == 0:
             frame = cv2.resize(frame, self.target_size)
             self._saved_frame_count += 1
-            cv2.imwrite(
-                os.path.join(self.frames_dir, f"frame_{self._saved_frame_count}.png"),
-                cv2.cvtColor(frame, cv2.COLOR_RGB2BGR),
-            )
+            cv2.imwrite(os.path.join(self.frames_dir, f"frame_{self._saved_frame_count}.png"), frame)
         self._frame_count += 1
 
     def stop_recording(self) -> None:
@@ -186,16 +184,16 @@ if __name__ == "__main__":
         help="Detail level for reconstruction (default: 4)",
     )
     parser.add_argument(
-        "--input-fps",
+        "--video-fps",
         type=int,
         default=30,
         help="Input video frames per second (default: 30)",
     )
     parser.add_argument(
-        "--output-fps",
+        "--target-fps",
         type=int,
         default=30,
-        help="Output frames per second for sampling (default: 30)",
+        help="Target output frames per second for sampling (default: 30)",
     )
 
     args = parser.parse_args()
@@ -205,8 +203,8 @@ if __name__ == "__main__":
         parser.error("input_path is required unless --skip-cv is used")
 
     photogrammetry = Photogrammetry(
-        input_fps=args.input_fps,
-        output_fps=args.output_fps,
+        video_fps=args.video_fps,
+        target_fps=args.target_fps,
         detail=args.detail,
         output_path=args.output_path,
     )

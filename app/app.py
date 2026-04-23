@@ -257,8 +257,8 @@ def main():
     stream = init_stream()
     state = {}
     state["photogrammetry"] = Photogrammetry(
-        input_fps=30,
-        output_fps=5,
+        video_fps=30,
+        target_fps=5,
         detail=2,
     )
 
