@@ -2,13 +2,31 @@ import argparse
 import ctypes
 import os
 import shutil
-import sys
 import time
+from dataclasses import dataclass, field
 from typing import Literal
 
 import cv2
 
 DYLIB_PATH = os.path.join(os.path.dirname(__file__), "libPgm.dylib")
+
+
+@dataclass
+class BoundingBox:
+    min_x: float
+    min_y: float
+    min_z: float
+    max_x: float
+    max_y: float
+    max_z: float
+    width: float = field(init=False)
+    height: float = field(init=False)
+    depth: float = field(init=False)
+
+    def __post_init__(self):
+        self.width = self.max_x - self.min_x
+        self.height = self.max_y - self.min_y
+        self.depth = self.max_z - self.min_z
 
 
 class _PgmModule:
@@ -35,6 +53,17 @@ class _PgmModule:
         self.lib.stop_photogrammetry_session.argtypes = []
         self.lib.stop_photogrammetry_session.restype = None
 
+        self.lib.get_bounding_box.argtypes = [
+            ctypes.c_char_p,
+            ctypes.POINTER(ctypes.c_float),
+            ctypes.POINTER(ctypes.c_float),
+            ctypes.POINTER(ctypes.c_float),
+            ctypes.POINTER(ctypes.c_float),
+            ctypes.POINTER(ctypes.c_float),
+            ctypes.POINTER(ctypes.c_float),
+        ]
+        self.lib.get_bounding_box.restype = None
+
     def start(self, path: bytes, output_path: bytes, temp_dir: bytes, detail: int = 2) -> None:
         return self.lib.run_photogrammetry_session(path, output_path, temp_dir, detail)
 
@@ -49,6 +78,27 @@ class _PgmModule:
 
     def get_eta(self) -> float:
         return self.lib.get_eta()
+
+    def get_bounding_box(self, path: bytes) -> BoundingBox:
+        min_x, min_y, min_z = ctypes.c_float(), ctypes.c_float(), ctypes.c_float()
+        max_x, max_y, max_z = ctypes.c_float(), ctypes.c_float(), ctypes.c_float()
+        self.lib.get_bounding_box(
+            path,
+            ctypes.byref(min_x),
+            ctypes.byref(min_y),
+            ctypes.byref(min_z),
+            ctypes.byref(max_x),
+            ctypes.byref(max_y),
+            ctypes.byref(max_z),
+        )
+        return BoundingBox(
+            min_x=min_x.value,
+            min_y=min_y.value,
+            min_z=min_z.value,
+            max_x=max_x.value,
+            max_y=max_y.value,
+            max_z=max_z.value,
+        )
 
 
 class Photogrammetry:
@@ -68,6 +118,7 @@ class Photogrammetry:
         temp_dir: str = "pgm-temp/",
         output_path: str = "output.usdz",
         video_capture: cv2.VideoCapture = None,
+        scale_factor: float = 1.0,
     ) -> None:
         self.lib = _PgmModule(path=DYLIB_PATH)
         self.video_capture = video_capture
@@ -173,6 +224,17 @@ class Photogrammetry:
     def is_completed(self) -> bool:
         return self.lib.is_completed()
 
+    def get_bounding_box(self, scale_factor: float) -> BoundingBox:
+        raw = self.lib.get_bounding_box(self.output_path.encode())
+        return BoundingBox(
+            min_x=raw.min_x * scale_factor,
+            min_y=raw.min_y * scale_factor,
+            min_z=raw.min_z * scale_factor,
+            max_x=raw.max_x * scale_factor,
+            max_y=raw.max_y * scale_factor,
+            max_z=raw.max_z * scale_factor,
+        )
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Photogrammetry reconstruction from video or image sequence")
@@ -193,6 +255,11 @@ if __name__ == "__main__":
         "--skip-cv",
         action="store_true",
         help="Skip video processing and only run reconstruction",
+    )
+    parser.add_argument(
+        "--skip-r",
+        action="store_true",
+        help="Skip reconstruction",
     )
     parser.add_argument(
         "--detail",
@@ -238,17 +305,22 @@ if __name__ == "__main__":
         cap.release()
         photogrammetry.stop_recording()
 
-    photogrammetry.start_reconstruction()
+    if not args.skip_r:
+        photogrammetry.start_reconstruction()
 
-    print("Reconstruction started...")
+        print("Reconstruction started...")
 
-    while True:
-        time.sleep(0.1)
-        progress = photogrammetry.get_progress()
-        eta = photogrammetry.get_eta()
-        print(f"Progress: {progress * 100:.1f}%  ETA: {eta:.1f}s", end="\r", flush=True)
+        while True:
+            time.sleep(0.1)
+            progress = photogrammetry.get_progress()
+            eta = photogrammetry.get_eta()
+            print(f"Progress: {progress * 100:.1f}%  ETA: {eta:.1f}s", end="\r", flush=True)
 
-        if photogrammetry.is_completed():
-            break
+            if photogrammetry.is_completed():
+                break
 
-    print("Reconstruction complete!")
+        print("Reconstruction complete!")
+
+    print("Getting bounding box")
+    bbox = photogrammetry.get_bounding_box()
+    print(bbox.width, bbox.height, bbox.depth)
