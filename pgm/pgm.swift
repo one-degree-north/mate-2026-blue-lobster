@@ -221,3 +221,25 @@ public func RunPhotogrammetrySession(
         }
     }
 }
+
+@_cdecl("get_bounding_box")
+public func GetBoundingBox(
+    usdzPath: UnsafePointer<CChar>,
+    minX: UnsafeMutablePointer<Float>,
+    minY: UnsafeMutablePointer<Float>,
+    minZ: UnsafeMutablePointer<Float>,
+    maxX: UnsafeMutablePointer<Float>,
+    maxY: UnsafeMutablePointer<Float>,
+    maxZ: UnsafeMutablePointer<Float>
+) {
+    let path = String(cString: usdzPath)
+    let asset = MDLAsset(url: URL(filePath: path))
+    asset.loadTextures()
+    let bbox = asset.boundingBox
+    minX.pointee = bbox.minBounds.x
+    minY.pointee = bbox.minBounds.y
+    minZ.pointee = bbox.minBounds.z
+    maxX.pointee = bbox.maxBounds.x
+    maxY.pointee = bbox.maxBounds.y
+    maxZ.pointee = bbox.maxBounds.z
+}
