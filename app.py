@@ -51,7 +51,9 @@ def processed_video_panel(stream):
             avail_w, avail_h = imgui.get_content_region_available()
             imgui.text_colored(f"STATUS: TRACKING", 0.3, 1.0, 0.3, 1.0)
             imgui.same_line()
-            imgui.text(f" | Crabs Counted: {stream.get_count()}")
+            imgui.text(f" | In Frame: {stream.get_visible_count()}")
+            imgui.same_line()
+            imgui.text(f" | Total Crabs: {stream.get_count()}")
             imgui.same_line()
             imgui.text(f" | Output FPS: {stream.get_output_fps():.1f}")
             ratio = min(avail_w / w, (avail_h - 30) / h)
@@ -89,6 +91,7 @@ def options_panel(state, stream):
     if "pgm_error" not in state: state["pgm_error"] = None
     if "start_time" not in state: state["start_time"] = 0
     if "counter_running" not in state: state["counter_running"] = False
+    if "pgm_capture_hz" not in state: state["pgm_capture_hz"] = 2.0
     
     model_path = os.path.abspath("pgm/reconstruction/out.usdz")
 
@@ -103,6 +106,11 @@ def options_panel(state, stream):
         imgui.same_line()
         if imgui.button("Stop Counter"):
             state["counter_running"] = False
+        imgui.same_line()
+        if imgui.button("Reset Counter"):
+            stream.reset_counter()
+
+        stream.set_detection_active(state["counter_running"])
 
         if state["counter_running"]:
             imgui.text_colored("Counter armed: hold button to count", 0.2, 0.9, 0.2, 1.0)
@@ -125,6 +133,18 @@ def options_panel(state, stream):
                 filename = f"recordings/snapshot_{ts}.png"
                 cv2.imwrite(filename, stream.raw_frame)
         
+        imgui.separator()
+
+        imgui.text("Photogrammetry Capture Rate")
+        _, state["pgm_capture_hz"] = imgui.slider_float(
+            "Photos per second",
+            state["pgm_capture_hz"],
+            0.2,
+            10.0,
+            "%.1f"
+        )
+        state["photogrammetry"].set_capture_rate(state["pgm_capture_hz"])
+        imgui.text_disabled(f"Current: {state['pgm_capture_hz']:.1f} photos/sec")
         imgui.separator()
 
         if state["pgm_error"]:

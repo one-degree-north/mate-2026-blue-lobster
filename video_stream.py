@@ -36,6 +36,7 @@ class VideoStream:
         self.tex_no_signal=None
         self.output_fps = 0.0
         self._last_processed_time = None
+        self.detection_active = False
 
 
         self.appsink.connect("new-sample", self._on_new_sample)
@@ -94,7 +95,10 @@ class VideoStream:
         while True:
             frame = self.frame_queue.get()
 
-            processed = self.recognizer.detect(frame.copy())
+            if self.detection_active:
+                processed = self.recognizer.detect(frame.copy())
+            else:
+                processed = frame.copy()
 
             if processed.shape != frame.shape:
                 processed = frame
@@ -254,6 +258,9 @@ class VideoStream:
     def get_count(self):
         return self.recognizer.counter
     
+    def get_visible_count(self):
+        return self.recognizer.visible_count
+    
     def get_output_fps(self):
         with self.lock:
             return self.output_fps
@@ -263,3 +270,12 @@ class VideoStream:
     
     def is_counting_active(self):
         return self.recognizer.counting
+
+    def set_detection_active(self, is_active):
+        self.detection_active = is_active
+
+    def is_detection_active(self):
+        return self.detection_active
+    
+    def reset_counter(self):
+        self.recognizer.reset_counter()
