@@ -34,6 +34,8 @@ class VideoStream:
         self.timeout_threshold = 1.0 
         self.last_frame_time = time.time()
         self.tex_no_signal=None
+        self.output_fps = 0.0
+        self._last_processed_time = None
 
 
         self.appsink.connect("new-sample", self._on_new_sample)
@@ -100,6 +102,14 @@ class VideoStream:
             with self.lock:
                 self.raw_frame = frame
                 self.processed_frame = processed
+                now = time.time()
+                if self._last_processed_time is not None:
+                    delta = now - self._last_processed_time
+                    if delta > 0:
+                        instant_fps = 1.0 / delta
+                        # Smooth FPS slightly so UI is stable.
+                        self.output_fps = (0.85 * self.output_fps) + (0.15 * instant_fps) if self.output_fps > 0 else instant_fps
+                self._last_processed_time = now
     # ---------- OpenGL ----------
     def _update_texture(self, tex, frame):
         if frame is None:
@@ -243,3 +253,13 @@ class VideoStream:
         return record_bin, tee_src_pad
     def get_count(self):
         return self.recognizer.counter
+    
+    def get_output_fps(self):
+        with self.lock:
+            return self.output_fps
+    
+    def set_counting_active(self, is_active):
+        self.recognizer.counting = is_active
+    
+    def is_counting_active(self):
+        return self.recognizer.counting
