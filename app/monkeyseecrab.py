@@ -33,6 +33,7 @@ class MultiCrabTracker:
         self.recount_cooldown = recount_cooldown
 
         self.counting = True
+        self.visible_count = 0
 
         self.detection_interval = detection_interval
         self.frame_index = 0
@@ -91,7 +92,7 @@ class MultiCrabTracker:
 
             kp_frame, des_frame = self.sift.detectAndCompute(gray, None)
 
-            if des_frame is not None:
+            if des_frame is not None and len(des_frame) >= 2:
 
                 for train in self.training_images:
 
@@ -268,6 +269,13 @@ class MultiCrabTracker:
                     0.9,
                     (0, 255, 0),
                     2)
+        self.visible_count = visible_crabs
+
+    def reset_counter(self):
+        self.counter = 0
+        self.next_id = 0
+        self.tracked = []
+        self.visible_count = 0
 
 
 # ----------------------------
