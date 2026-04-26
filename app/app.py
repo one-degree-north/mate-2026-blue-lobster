@@ -12,11 +12,11 @@ gi.require_version("Gst", "1.0")
 from gi.repository import Gst
 
 from .monkeyseecrab import MultiCrabTracker
-from video_stream import VideoStream
+from .video_stream import VideoStream
 from photogrammetry.client import PhotoGrammetry, PgmBindings
 
 # --- Background Worker Function ---
-def run_reconstruction_worker():
+def run_reconstruction_worker(progress):
     """
     Runs in a completely separate OS process to prevent UI lag.
     """
@@ -37,6 +37,7 @@ def run_reconstruction_worker():
         
         # Keep process alive while engine is working
         while not pgm.is_completed():
+            progress.value = pgm.get_progress()
             time.sleep(0.5)
 
 # --- UI Panels ---
@@ -201,13 +202,14 @@ def options_panel(state, stream):
                 state["photogrammetry"].stop_recording()
 
                 # Start the background process (multiprocessing for better UI performance)
-                proc = multiprocessing.Process(target=run_reconstruction_worker)
+                proc = multiprocessing.Process(target=run_reconstruction_worker, args=(state["progress"],))
                 proc.start()
                 state["pgm_proc"] = proc
 
         # Monitor the Background Process
         if state["is_reconstructing"] and state["pgm_proc"]:
             imgui.text_colored("Engine running in background...", 0.4, 0.7, 1.0, 1.0)
+            imgui.progress_bar(state["progress"].value, size=(-1, 20))
             
             # Check if process is still alive
             if not state["pgm_proc"].is_alive():
@@ -229,6 +231,7 @@ def main():
     stream = init_stream()
     state = {}
     state["photogrammetry"] = PhotoGrammetry(PgmBindings("libpgm.dylib"))
+    state["progress"] = multiprocessing.Value('d', 0.0)
 
     c.main(c.orr([
         c.window("Processed Video", processed_video_panel(stream)),

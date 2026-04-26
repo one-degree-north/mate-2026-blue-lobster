@@ -1,21 +1,18 @@
-import datetime
-import os
-import queue
-import threading
-import time
-
-import cv2
-import gi
-import numpy as np
 import OpenGL.GL as gl
+import numpy as np
+import gi
+import threading
+import queue
+import datetime
+import time
+import os
+import cv2
 
 gi.require_version("Gst", "1.0")
 from gi.repository import Gst
 
-
 class VideoStream:
     def __init__(self, pipeline_desc, recognizer):
-
         Gst.init(None)
 
         self.pipeline = Gst.parse_launch(pipeline_desc)
@@ -34,14 +31,20 @@ class VideoStream:
         self.tex_processed = None
         self.texture_sizes = {}
 
-        self.timeout_threshold = 1.0
+        self.timeout_threshold = 1.0 
         self.last_frame_time = time.time()
-        self.tex_no_signal = None
+        self.tex_no_signal=None
+        self.output_fps = 0.0
+        self._last_processed_time = None
+        self.detection_active = False
+
 
         self.appsink.connect("new-sample", self._on_new_sample)
         self.pipeline.set_state(Gst.State.PLAYING)
 
         threading.Thread(target=self._cv_worker, daemon=True).start()
+
+    
 
     def _load_static_texture(self, path):
         img = cv2.imread(path)
@@ -49,7 +52,7 @@ class VideoStream:
             return None
         img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
         h, w, _ = img.shape
-
+        
         tex = gl.glGenTextures(1)
         gl.glPixelStorei(gl.GL_UNPACK_ALIGNMENT, 1)
         gl.glBindTexture(gl.GL_TEXTURE_2D, tex)
@@ -63,7 +66,7 @@ class VideoStream:
         sample = sink.emit("pull-sample")
         buffer = sample.get_buffer()
         caps = sample.get_caps()
-        self.last_frame_time = time.time()
+        self.last_frame_time=time.time()
 
         width = caps.get_structure(0).get_value("width")
         height = caps.get_structure(0).get_value("height")
@@ -72,7 +75,9 @@ class VideoStream:
         if not success:
             return Gst.FlowReturn.OK
 
-        frame = np.frombuffer(map_info.data, dtype=np.uint8).reshape((height, width, 3)).copy()
+        frame = np.frombuffer(map_info.data, dtype=np.uint8).reshape(
+            (height, width, 3)
+        ).copy()
 
         buffer.unmap(map_info)
 
@@ -90,7 +95,10 @@ class VideoStream:
         while True:
             frame = self.frame_queue.get()
 
-            processed = self.recognizer.detect(frame.copy())
+            if self.detection_active:
+                processed = self.recognizer.detect(frame.copy())
+            else:
+                processed = frame.copy()
 
             if processed.shape != frame.shape:
                 processed = frame
@@ -98,7 +106,14 @@ class VideoStream:
             with self.lock:
                 self.raw_frame = frame
                 self.processed_frame = processed
-
+                now = time.time()
+                if self._last_processed_time is not None:
+                    delta = now - self._last_processed_time
+                    if delta > 0:
+                        instant_fps = 1.0 / delta
+                        # Smooth FPS slightly so UI is stable.
+                        self.output_fps = (0.85 * self.output_fps) + (0.15 * instant_fps) if self.output_fps > 0 else instant_fps
+                self._last_processed_time = now
     # ---------- OpenGL ----------
     def _update_texture(self, tex, frame):
         if frame is None:
@@ -155,10 +170,12 @@ class VideoStream:
             if self.tex_no_signal is None:
                 self.tex_no_signal = self._load_static_texture("assets/no_signal.png")
             self.tex_raw = self._update_texture(self.tex_raw, self.raw_frame)
-            self.tex_processed = self._update_texture(self.tex_processed, self.processed_frame)
+            self.tex_processed = self._update_texture(
+                self.tex_processed, self.processed_frame
+            )
 
     def get_textures(self):
-        current_time = time.time()
+        current_time=time.time()
         if (current_time - self.last_frame_time) > self.timeout_threshold:
             # Return the static texture for all three slots
             return self.tex_no_signal, self.tex_no_signal, self.tex_no_signal
@@ -184,7 +201,7 @@ class VideoStream:
             gl.glDeleteTextures([self.tex_raw])
         if self.tex_processed:
             gl.glDeleteTextures([self.tex_processed])
-
+    
     def stop_recording(self, record_bin, tee_src_pad):
         if not record_bin or not tee_src_pad:
             return
@@ -193,29 +210,29 @@ class VideoStream:
             # This runs in a streaming thread, safe from the UI
             # 1. Send EOS to the recording branch only
             record_bin.send_event(Gst.Event.new_eos())
-
+            
             # 2. Unlink the pad
             pad.unlink(record_bin.get_static_pad("sink"))
-
+            
             # 3. Clean up the bin
             record_bin.set_state(Gst.State.NULL)
             self.pipeline.remove(record_bin)
-
+            
             # 4. Release the tee's request pad
             self.tee.release_request_pad(pad)
-
+            
             print("Recording branch removed safely. Main stream continues.")
-            return Gst.PadProbeReturn.REMOVE  # Remove this probe after it runs once
+            return Gst.PadProbeReturn.REMOVE # Remove this probe after it runs once
 
         # Add an IDLE probe: it waits until the pad isn't busy, then runs the callback
         tee_src_pad.add_probe(Gst.PadProbeType.IDLE, _unlink_callback, None)
+        
 
     def start_recording(self):
         if not os.path.isdir("recordings"):
             os.makedirs("recordings/")
         import datetime
-
-        timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        timestamp = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
         filename = f"recordings/recording_{timestamp}.mp4"
 
         # We use 'mp4mux' with 'fragment-duration' so it's playable even if interrupted
@@ -223,7 +240,7 @@ class VideoStream:
         record_bin_desc = (
             f"queue ! videoconvert ! "
             f"x264enc tune=zerolatency bitrate=5000 speed-preset=ultrafast ! "
-            f"mp4mux fragment-duration=20 ! "
+            f"mp4mux fragment-duration=20 ! " 
             f"filesink location={filename}"
         )
 
@@ -238,6 +255,27 @@ class VideoStream:
 
         print(f"Recording to single MP4 started: {filename}")
         return record_bin, tee_src_pad
-
     def get_count(self):
         return self.recognizer.counter
+    
+    def get_visible_count(self):
+        return self.recognizer.visible_count
+    
+    def get_output_fps(self):
+        with self.lock:
+            return self.output_fps
+    
+    def set_counting_active(self, is_active):
+        self.recognizer.counting = is_active
+    
+    def is_counting_active(self):
+        return self.recognizer.counting
+
+    def set_detection_active(self, is_active):
+        self.detection_active = is_active
+
+    def is_detection_active(self):
+        return self.detection_active
+    
+    def reset_counter(self):
+        self.recognizer.reset_counter()
