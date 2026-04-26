@@ -1,7 +1,7 @@
 import datetime
-import multiprocessing
 import os
 import subprocess
+import threading
 import time
 
 import concur as c
@@ -12,38 +12,33 @@ import imgui
 gi.require_version("Gst", "1.0")
 from gi.repository import Gst
 
-from pgm import Photogrammetry as PhotoGrammetry
-from pgm import _PgmModule as PgmBindings
+from pgm import Photogrammetry
 
 from .monkeyseecrab import MultiCrabTracker
 from .video_stream import VideoStream
 
 
+TEMP_DIR = "pgm"
+OUTPUT_PATH = "pgm/reconstruction/model/out.usdz"
+
+
 # --- Background Worker Function ---
-def run_reconstruction_worker(progress):
+def run_reconstruction_worker(photogrammetry, progress, stop_event):
     """
-    Runs in a completely separate OS process to prevent UI lag.
+    Runs in a background thread to prevent UI lag.
     """
-    # Lower the priority of this process so the UI stays smooth
+    # Lower the priority of this thread so the UI stays smooth
     try:
         os.nice(10)
     except:
         pass
 
-    # We must re-init the library inside the new process
-    pgm = PhotoGrammetry(
-        video_fps=30, target_fps=15, detail=2, temp_dir="pgm", output_path="pgm/reconstruction/model/out.usdz"
-    )
+    photogrammetry.start_reconstruction()
 
-    # Check if files exist before starting
-    input_dir = os.path.abspath("pgm/reconstruction")
-    if os.path.exists(input_dir) and len(os.listdir(input_dir)) > 0:
-        pgm.start_reconstruction()
-
-        # Keep process alive while engine is working
-        while not pgm.is_completed():
-            progress.value = pgm.get_progress()
-            time.sleep(0.5)
+    # Keep thread alive while engine is working
+    while not photogrammetry.is_completed() and not stop_event.is_set():
+        progress[0] = photogrammetry.get_progress()
+        time.sleep(0.5)
 
 
 # --- UI Panels ---
@@ -138,10 +133,10 @@ def options_panel(state, stream):
         state["counter_running"] = False
     if "pgm_capture_hz" not in state:
         state["pgm_capture_hz"] = 2.0
-    if "pgm_proc" not in state:
-        state["pgm_proc"] = None
+    if "pgm_thread" not in state:
+        state["pgm_thread"] = None
 
-    model_path = os.path.abspath("pgm/reconstruction/out.usdz")
+    model_path = os.path.abspath(OUTPUT_PATH)
 
     while True:
         snap_to_grid(50)
@@ -186,7 +181,9 @@ def options_panel(state, stream):
         imgui.text("Photogrammetry Capture Rate")
         if state["photogrammetry_active"]:
             imgui.push_style_var(imgui.STYLE_ALPHA, 0.5)
-        changed, state["pgm_capture_hz"] = imgui.slider_float("Photos per second", state["pgm_capture_hz"], 0.2, 10.0, "%.1f")
+        changed, state["pgm_capture_hz"] = imgui.slider_float(
+            "Photos per second", state["pgm_capture_hz"], 0.2, 10.0, "%.1f"
+        )
         if state["photogrammetry_active"]:
             imgui.pop_style_var()
             imgui.text_disabled("(locked during recording)")
@@ -208,12 +205,12 @@ def options_panel(state, stream):
                 state["photogrammetry"].receive_frame(stream.raw_frame)
 
         if not state["photogrammetry_active"]:
-            if state["is_reconstructing"] or state["pgm_proc"]:
+            if state["is_reconstructing"] or state["pgm_thread"]:
                 imgui.push_style_var(imgui.STYLE_ALPHA, 0.5)
             if imgui.button("Start Photogrammetry") and not state["is_reconstructing"]:
                 state["photogrammetry_active"] = True
                 state["photogrammetry"].start_recording()
-            if state["is_reconstructing"] or state["pgm_proc"]:
+            if state["is_reconstructing"] or state["pgm_thread"]:
                 imgui.pop_style_var()
         else:
             if imgui.button("Begin Reconstruction"):
@@ -222,20 +219,21 @@ def options_panel(state, stream):
                 state["start_time"] = time.time()
                 state["photogrammetry"].stop_recording()
 
-                # Start the background process (multiprocessing for better UI performance)
-                proc = multiprocessing.Process(target=run_reconstruction_worker, args=(state["progress"],))
-                proc.start()
-                state["pgm_proc"] = proc
+                # Start the background thread for reconstruction
+                state["stop_event"].clear()
+                thread = threading.Thread(target=run_reconstruction_worker, args=(state["photogrammetry"], state["progress"], state["stop_event"]), daemon=True)
+                thread.start()
+                state["pgm_thread"] = thread
 
-        # Monitor the Background Process
-        if state["is_reconstructing"] and state["pgm_proc"]:
+        # Monitor the Background Thread
+        if state["is_reconstructing"] and state["pgm_thread"]:
             imgui.text_colored("Engine running in background...", 0.4, 0.7, 1.0, 1.0)
-            imgui.progress_bar(state["progress"].value, size=(-1, 20))
+            imgui.progress_bar(state["progress"][0], size=(-1, 20))
 
-            # Check if process is still alive
-            if not state["pgm_proc"].is_alive():
+            # Check if thread is still alive
+            if not state["pgm_thread"].is_alive():
                 state["is_reconstructing"] = False
-                state["pgm_proc"] = None
+                state["pgm_thread"] = None
 
         if os.path.exists(model_path):
             imgui.push_style_color(imgui.COLOR_BUTTON, 0.2, 0.6, 0.2, 1.0)
@@ -247,15 +245,13 @@ def options_panel(state, stream):
 
 
 def main():
-    # Multiprocessing on macOS requires this inside the main guard
-    multiprocessing.set_start_method("spawn", force=True)
-
     stream = init_stream()
     state = {}
-    state["photogrammetry"] = PhotoGrammetry(
-        video_fps=30, target_fps=15, detail=2, temp_dir="pgm", output_path="pgm/reconstruction/model/out.usdz"
+    state["photogrammetry"] = Photogrammetry(
+        video_fps=30, target_fps=15, detail=2, temp_dir=TEMP_DIR, output_path=OUTPUT_PATH
     )
-    state["progress"] = multiprocessing.Value("d", 0.0)
+    state["progress"] = [0.0]
+    state["stop_event"] = threading.Event()
 
     c.main(
         c.orr(
@@ -267,8 +263,9 @@ def main():
     )
 
     # Cleanup
-    if state.get("pgm_proc"):
-        state["pgm_proc"].terminate()
+    if state.get("pgm_thread") and state["pgm_thread"].is_alive():
+        state["stop_event"].set()
+        state["pgm_thread"].join(timeout=2.0)
     stream.shutdown()
 
 
