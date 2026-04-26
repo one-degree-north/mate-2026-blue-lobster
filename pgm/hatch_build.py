@@ -1,6 +1,5 @@
 import subprocess
 import sys
-from pathlib import Path
 
 from hatchling.builders.hooks.plugin.interface import BuildHookInterface
 

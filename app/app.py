@@ -101,7 +101,7 @@ def processed_video_panel(stream: VideoStream) -> Generator[None, None, None]:
         if shape and tex_proc is not None:
             h, w = shape
             avail_w, avail_h = imgui.get_content_region_available()
-            imgui.text_colored(f"STATUS: TRACKING", 0.3, 1.0, 0.3, 1.0)
+            imgui.text_colored("STATUS: TRACKING", 0.3, 1.0, 0.3, 1.0)
             imgui.same_line()
             imgui.text(f" | In Frame: {stream.get_visible_count()}")
             imgui.same_line()

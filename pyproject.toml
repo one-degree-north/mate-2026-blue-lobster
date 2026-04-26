@@ -2,6 +2,7 @@
 name = "mate-26"
 version = "0.1.0"
 requires-python = "~=3.11.0"
+
 dependencies = [
     "concur>=0.11.0",
     "imgui[glfw]>=2.0.0",
@@ -10,8 +11,8 @@ dependencies = [
     "pgm",
     "pygobject>=3.56.2",
     "pyopengl>=3.1.10",
-    "requests>=2.33.1",
 ]
+
 [dependency-groups]
 dev = [
     "isort>=8.0.1",
