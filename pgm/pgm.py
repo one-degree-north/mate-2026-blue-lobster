@@ -184,8 +184,8 @@ class Photogrammetry:
 
     def stop_recording(self) -> None:
         self._is_recording = False
-        if self._saved_frame_count == 0:
-            print("Warning: no frames were recorded.")
+        # if self._saved_frame_count == 0:
+        #    print("Warning: no frames were recorded.")
 
     def set_capture_rate(self, fps: float) -> None:
         """Set the target capture rate (frames per second). Only works between recording sessions."""

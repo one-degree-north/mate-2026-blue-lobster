@@ -3,6 +3,8 @@ import os
 import subprocess
 import threading
 import time
+from collections.abc import Generator
+from dataclasses import dataclass
 
 import concur as c
 import cv2
@@ -17,13 +19,33 @@ from pgm import Photogrammetry
 from .monkeyseecrab import MultiCrabTracker
 from .video_stream import VideoStream
 
-
 TEMP_DIR = "pgm"
 OUTPUT_PATH = "pgm/reconstruction/model/out.usdz"
 
 
+@dataclass
+class AppState:
+    photogrammetry: Photogrammetry
+    stop_event: threading.Event
+
+    progress: float = 0.0
+
+    recording: bool = False
+    active_bin: Gst.Bin | None = None
+    active_pad: Gst.Pad | None = None
+    rec_start_time: float | None = None
+
+    photogrammetry_active: bool = False
+    is_reconstructing: bool = False
+    pgm_error: str | None = None
+    start_time: float = 0.0
+    counter_running: bool = False
+    pgm_capture_hz: float = 2.0
+    pgm_thread: threading.Thread | None = None
+
+
 # --- Background Worker Function ---
-def run_reconstruction_worker(photogrammetry, progress, stop_event):
+def run_reconstruction_worker(photogrammetry: Photogrammetry, app_state: AppState, stop_event: threading.Event) -> None:
     """
     Runs in a background thread to prevent UI lag.
     """
@@ -37,14 +59,14 @@ def run_reconstruction_worker(photogrammetry, progress, stop_event):
 
     # Keep thread alive while engine is working
     while not photogrammetry.is_completed() and not stop_event.is_set():
-        progress[0] = photogrammetry.get_progress()
+        app_state.progress = photogrammetry.get_progress()
         time.sleep(0.5)
 
 
 # --- UI Panels ---
 
 
-def init_stream():
+def init_stream() -> VideoStream:
     tracker = MultiCrabTracker(detection_interval=20)
     tracker.load_training_image(os.path.join(os.path.dirname(__file__), "..", "assets", "monkeydo.png"))
     tracker.counting = False
@@ -57,17 +79,17 @@ def init_stream():
     return VideoStream(pipeline_desc, tracker)
 
 
-def set_global_font_once():
+def set_global_font_once() -> None:
     io = imgui.get_io()
     io.font_global_scale = 1.5
 
 
-def snap_to_grid(size=20):
+def snap_to_grid(size: int = 20) -> None:
     x, y = imgui.get_window_position()
     imgui.set_window_position(round(x / size) * size, round(y / size) * size)
 
 
-def processed_video_panel(stream):
+def processed_video_panel(stream: VideoStream) -> Generator[None, None, None]:
     set_global_font_once()
     while True:
         snap_to_grid(50)
@@ -93,49 +115,32 @@ def processed_video_panel(stream):
         yield
 
 
-def video_recording_panel(state, stream):
-    if "recording" not in state:
-        state["recording"] = False
+def video_recording_panel(state: AppState, stream: VideoStream) -> None:
     current_time = time.time()
-    button_label = "STOP Recording" if state["recording"] else "START Recording"
+    button_label = "STOP Recording" if state.recording else "START Recording"
 
     if imgui.button(button_label):
-        if not state["recording"]:
-            state["active_bin"], state["active_pad"] = stream.start_recording()
-            state["rec_start_time"], state["recording"] = current_time, True
+        if not state.recording:
+            state.active_bin, state.active_pad = stream.start_recording()
+            state.rec_start_time, state.recording = current_time, True
         else:
-            stream.stop_recording(state.get("active_bin"), state.get("active_pad"))
-            state["recording"] = False
+            stream.stop_recording(state.active_bin, state.active_pad)
+            state.recording = False
 
     imgui.same_line()
-    if state["recording"]:
+    if state.recording:
         if int(current_time * 2) % 2 == 0:
             imgui.text_colored("REC", 1.0, 0.0, 0.0, 1.0)
         else:
             imgui.text("   ")
         imgui.same_line()
-        elapsed = current_time - state["rec_start_time"]
+        elapsed = current_time - state.rec_start_time
         imgui.text(f"{int(elapsed // 60):02d}:{int(elapsed % 60):02d}")
     else:
         imgui.text_disabled("Standby")
 
 
-def options_panel(state, stream):
-    if "photogrammetry_active" not in state:
-        state["photogrammetry_active"] = False
-    if "is_reconstructing" not in state:
-        state["is_reconstructing"] = False
-    if "pgm_error" not in state:
-        state["pgm_error"] = None
-    if "start_time" not in state:
-        state["start_time"] = 0
-    if "counter_running" not in state:
-        state["counter_running"] = False
-    if "pgm_capture_hz" not in state:
-        state["pgm_capture_hz"] = 2.0
-    if "pgm_thread" not in state:
-        state["pgm_thread"] = None
-
+def options_panel(state: AppState, stream: VideoStream) -> Generator[None, None, None]:
     model_path = os.path.abspath(OUTPUT_PATH)
 
     while True:
@@ -145,17 +150,17 @@ def options_panel(state, stream):
 
         imgui.text("Crab Counter")
         if imgui.button("Start Counter"):
-            state["counter_running"] = True
+            state.counter_running = True
         imgui.same_line()
         if imgui.button("Stop Counter"):
-            state["counter_running"] = False
+            state.counter_running = False
         imgui.same_line()
         if imgui.button("Reset Counter"):
             stream.reset_counter()
 
-        stream.set_detection_active(state["counter_running"])
+        stream.set_detection_active(state.counter_running)
 
-        if state["counter_running"]:
+        if state.counter_running:
             imgui.text_colored("Counter armed: hold button to count", 0.2, 0.9, 0.2, 1.0)
             imgui.button("HOLD TO COUNT")
             stream.set_counting_active(imgui.is_item_active())
@@ -179,61 +184,61 @@ def options_panel(state, stream):
         imgui.separator()
 
         imgui.text("Photogrammetry Capture Rate")
-        if state["photogrammetry_active"]:
+        if state.photogrammetry_active:
             imgui.push_style_var(imgui.STYLE_ALPHA, 0.5)
-        changed, state["pgm_capture_hz"] = imgui.slider_float(
-            "Photos per second", state["pgm_capture_hz"], 0.2, 10.0, "%.1f"
-        )
-        if state["photogrammetry_active"]:
+        changed, state.pgm_capture_hz = imgui.slider_float("Photos per second", state.pgm_capture_hz, 0.2, 10.0, "%.1f")
+        if state.photogrammetry_active:
             imgui.pop_style_var()
             imgui.text_disabled("(locked during recording)")
         elif changed:
-            state["photogrammetry"].set_capture_rate(state["pgm_capture_hz"])
-        imgui.text_disabled(f"Current: {state['pgm_capture_hz']:.1f} photos/sec")
+            state.photogrammetry.set_capture_rate(state.pgm_capture_hz)
+        imgui.text_disabled(f"Current: {state.pgm_capture_hz:.1f} photos/sec")
         imgui.separator()
 
-        if state["pgm_error"]:
+        if state.pgm_error:
             imgui.push_style_color(imgui.COLOR_TEXT, 1.0, 0.4, 0.4, 1.0)
-            imgui.text_wrapped(f"ENGINE ERROR: {state['pgm_error']}")
+            imgui.text_wrapped(f"ENGINE ERROR: {state.pgm_error}")
             imgui.pop_style_color()
             if imgui.button("Dismiss Error"):
-                state["pgm_error"] = None
+                state.pgm_error = None
             imgui.separator()
 
-        if state["photogrammetry_active"]:
+        if state.photogrammetry_active:
             if stream.raw_frame is not None:
-                state["photogrammetry"].receive_frame(stream.raw_frame)
+                state.photogrammetry.receive_frame(stream.raw_frame)
 
-        if not state["photogrammetry_active"]:
-            if state["is_reconstructing"] or state["pgm_thread"]:
+        if not state.photogrammetry_active:
+            if state.is_reconstructing or state.pgm_thread:
                 imgui.push_style_var(imgui.STYLE_ALPHA, 0.5)
-            if imgui.button("Start Photogrammetry") and not state["is_reconstructing"]:
-                state["photogrammetry_active"] = True
-                state["photogrammetry"].start_recording()
-            if state["is_reconstructing"] or state["pgm_thread"]:
+            if imgui.button("Start Photogrammetry") and not state.is_reconstructing:
+                state.photogrammetry_active = True
+                state.photogrammetry.start_recording()
+            if state.is_reconstructing or state.pgm_thread:
                 imgui.pop_style_var()
         else:
             if imgui.button("Begin Reconstruction"):
-                state["photogrammetry_active"] = False
-                state["is_reconstructing"] = True
-                state["start_time"] = time.time()
-                state["photogrammetry"].stop_recording()
+                state.photogrammetry_active = False
+                state.is_reconstructing = True
+                state.start_time = time.time()
+                state.photogrammetry.stop_recording()
 
                 # Start the background thread for reconstruction
-                state["stop_event"].clear()
-                thread = threading.Thread(target=run_reconstruction_worker, args=(state["photogrammetry"], state["progress"], state["stop_event"]), daemon=True)
+                state.stop_event.clear()
+                thread = threading.Thread(
+                    target=run_reconstruction_worker, args=(state.photogrammetry, state, state.stop_event), daemon=True
+                )
                 thread.start()
-                state["pgm_thread"] = thread
+                state.pgm_thread = thread
 
         # Monitor the Background Thread
-        if state["is_reconstructing"] and state["pgm_thread"]:
+        if state.is_reconstructing and state.pgm_thread:
             imgui.text_colored("Engine running in background...", 0.4, 0.7, 1.0, 1.0)
-            imgui.progress_bar(state["progress"][0], size=(-1, 20))
+            imgui.progress_bar(state.progress, size=(-1, 20))
 
             # Check if thread is still alive
-            if not state["pgm_thread"].is_alive():
-                state["is_reconstructing"] = False
-                state["pgm_thread"] = None
+            if not state.pgm_thread.is_alive():
+                state.is_reconstructing = False
+                state.pgm_thread = None
 
         if os.path.exists(model_path):
             imgui.push_style_color(imgui.COLOR_BUTTON, 0.2, 0.6, 0.2, 1.0)
@@ -244,14 +249,14 @@ def options_panel(state, stream):
         yield
 
 
-def main():
+def main() -> None:
     stream = init_stream()
-    state = {}
-    state["photogrammetry"] = Photogrammetry(
-        video_fps=30, target_fps=15, detail=2, temp_dir=TEMP_DIR, output_path=OUTPUT_PATH
+    state = AppState(
+        photogrammetry=Photogrammetry(
+            video_fps=30, target_fps=15, detail=2, temp_dir=TEMP_DIR, output_path=OUTPUT_PATH
+        ),
+        stop_event=threading.Event(),
     )
-    state["progress"] = [0.0]
-    state["stop_event"] = threading.Event()
 
     c.main(
         c.orr(
@@ -263,9 +268,9 @@ def main():
     )
 
     # Cleanup
-    if state.get("pgm_thread") and state["pgm_thread"].is_alive():
-        state["stop_event"].set()
-        state["pgm_thread"].join(timeout=2.0)
+    if state.pgm_thread and state.pgm_thread.is_alive():
+        state.stop_event.set()
+        state.pgm_thread.join(timeout=2.0)
     stream.shutdown()
 
 
