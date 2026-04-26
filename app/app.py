@@ -1,19 +1,23 @@
-import time
-import gi
-import concur as c
 import datetime
-import imgui
+import multiprocessing
 import os
 import subprocess
-import multiprocessing
+import time
+
+import concur as c
 import cv2
+import gi
+import imgui
 
 gi.require_version("Gst", "1.0")
 from gi.repository import Gst
 
+from pgm import Photogrammetry as PhotoGrammetry
+from pgm import _PgmModule as PgmBindings
+
 from .monkeyseecrab import MultiCrabTracker
 from .video_stream import VideoStream
-from pgm.pgm import Photogrammetry as PhotoGrammetry, _PgmModule as PgmBindings
+
 
 # --- Background Worker Function ---
 def run_reconstruction_worker(progress):
@@ -22,30 +26,32 @@ def run_reconstruction_worker(progress):
     """
     # Lower the priority of this process so the UI stays smooth
     try:
-        os.nice(10) 
+        os.nice(10)
     except:
         pass
 
     # We must re-init the library inside the new process
-    pgm = PhotoGrammetry(video_fps=30, target_fps=15, detail=2, temp_dir="pgm", output_path="pgm/reconstruction/model/out.usdz")
-    
+    pgm = PhotoGrammetry(
+        video_fps=30, target_fps=15, detail=2, temp_dir="pgm", output_path="pgm/reconstruction/model/out.usdz"
+    )
+
     # Check if files exist before starting
     input_dir = os.path.abspath("pgm/reconstruction")
     if os.path.exists(input_dir) and len(os.listdir(input_dir)) > 0:
         pgm.start_reconstruction()
-        
+
         # Keep process alive while engine is working
         while not pgm.is_completed():
             progress.value = pgm.get_progress()
             time.sleep(0.5)
 
+
 # --- UI Panels ---
+
 
 def init_stream():
     tracker = MultiCrabTracker(detection_interval=20)
-    tracker.load_training_image(
-        os.path.join(os.path.dirname(__file__), "reference.png")
-    )
+    tracker.load_training_image(os.path.join(os.path.dirname(__file__), "reference.png"))
     tracker.counting = False
     pipeline_desc = """
     udpsrc port=5000 caps="application/x-rtp, media=video, encoding-name=H264, payload=96" !
@@ -55,13 +61,16 @@ def init_stream():
     """
     return VideoStream(pipeline_desc, tracker)
 
+
 def set_global_font_once():
     io = imgui.get_io()
-    io.font_global_scale = 1.5 
+    io.font_global_scale = 1.5
+
 
 def snap_to_grid(size=20):
     x, y = imgui.get_window_position()
     imgui.set_window_position(round(x / size) * size, round(y / size) * size)
+
 
 def processed_video_panel(stream):
     set_global_font_once()
@@ -88,11 +97,13 @@ def processed_video_panel(stream):
             imgui.text_disabled("Searching for signal...")
         yield
 
+
 def video_recording_panel(state, stream):
-    if "recording" not in state: state["recording"] = False
+    if "recording" not in state:
+        state["recording"] = False
     current_time = time.time()
     button_label = "STOP Recording" if state["recording"] else "START Recording"
-    
+
     if imgui.button(button_label):
         if not state["recording"]:
             state["active_bin"], state["active_pad"] = stream.start_recording()
@@ -103,23 +114,33 @@ def video_recording_panel(state, stream):
 
     imgui.same_line()
     if state["recording"]:
-        if int(current_time * 2) % 2 == 0: imgui.text_colored("REC", 1.0, 0.0, 0.0, 1.0)
-        else: imgui.text("   ")
+        if int(current_time * 2) % 2 == 0:
+            imgui.text_colored("REC", 1.0, 0.0, 0.0, 1.0)
+        else:
+            imgui.text("   ")
         imgui.same_line()
         elapsed = current_time - state["rec_start_time"]
         imgui.text(f"{int(elapsed // 60):02d}:{int(elapsed % 60):02d}")
     else:
         imgui.text_disabled("Standby")
 
+
 def options_panel(state, stream):
-    if "photogrammetry_active" not in state: state["photogrammetry_active"] = False
-    if "is_reconstructing" not in state: state["is_reconstructing"] = False
-    if "pgm_error" not in state: state["pgm_error"] = None
-    if "start_time" not in state: state["start_time"] = 0
-    if "counter_running" not in state: state["counter_running"] = False
-    if "pgm_capture_hz" not in state: state["pgm_capture_hz"] = 2.0
-    if "pgm_proc" not in state: state["pgm_proc"] = None
-    
+    if "photogrammetry_active" not in state:
+        state["photogrammetry_active"] = False
+    if "is_reconstructing" not in state:
+        state["is_reconstructing"] = False
+    if "pgm_error" not in state:
+        state["pgm_error"] = None
+    if "start_time" not in state:
+        state["start_time"] = 0
+    if "counter_running" not in state:
+        state["counter_running"] = False
+    if "pgm_capture_hz" not in state:
+        state["pgm_capture_hz"] = 2.0
+    if "pgm_proc" not in state:
+        state["pgm_proc"] = None
+
     model_path = os.path.abspath("pgm/reconstruction/out.usdz")
 
     while True:
@@ -146,9 +167,9 @@ def options_panel(state, stream):
         else:
             imgui.text_disabled("Counter stopped")
             stream.set_counting_active(False)
-        
+
         imgui.separator()
-        
+
         video_recording_panel(state, stream)
         imgui.spacing()
 
@@ -156,20 +177,14 @@ def options_panel(state, stream):
             if stream.raw_frame is not None:
                 if not os.path.isdir("recordings"):
                     os.makedirs("recordings/")
-                ts = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
+                ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
                 filename = f"recordings/snapshot_{ts}.png"
                 cv2.imwrite(filename, stream.raw_frame)
-        
+
         imgui.separator()
 
         imgui.text("Photogrammetry Capture Rate")
-        _, state["pgm_capture_hz"] = imgui.slider_float(
-            "Photos per second",
-            state["pgm_capture_hz"],
-            0.2,
-            10.0,
-            "%.1f"
-        )
+        _, state["pgm_capture_hz"] = imgui.slider_float("Photos per second", state["pgm_capture_hz"], 0.2, 10.0, "%.1f")
         state["photogrammetry"].set_capture_rate(state["pgm_capture_hz"])
         imgui.text_disabled(f"Current: {state['pgm_capture_hz']:.1f} photos/sec")
         imgui.separator()
@@ -178,7 +193,8 @@ def options_panel(state, stream):
             imgui.push_style_color(imgui.COLOR_TEXT, 1.0, 0.4, 0.4, 1.0)
             imgui.text_wrapped(f"ENGINE ERROR: {state['pgm_error']}")
             imgui.pop_style_color()
-            if imgui.button("Dismiss Error"): state["pgm_error"] = None
+            if imgui.button("Dismiss Error"):
+                state["pgm_error"] = None
             imgui.separator()
 
         if state["photogrammetry_active"]:
@@ -186,12 +202,12 @@ def options_panel(state, stream):
                 state["photogrammetry"].receive_frame(stream.raw_frame)
 
         if not state["photogrammetry_active"]:
-            if state["is_reconstructing"] or state["pgm_proc"]: 
+            if state["is_reconstructing"] or state["pgm_proc"]:
                 imgui.push_style_var(imgui.STYLE_ALPHA, 0.5)
             if imgui.button("Start Photogrammetry") and not state["is_reconstructing"]:
                 state["photogrammetry_active"] = True
                 state["photogrammetry"].start_recording()
-            if state["is_reconstructing"] or state["pgm_proc"]: 
+            if state["is_reconstructing"] or state["pgm_proc"]:
                 imgui.pop_style_var()
         else:
             if imgui.button("Begin Reconstruction"):
@@ -209,12 +225,12 @@ def options_panel(state, stream):
         if state["is_reconstructing"] and state["pgm_proc"]:
             imgui.text_colored("Engine running in background...", 0.4, 0.7, 1.0, 1.0)
             imgui.progress_bar(state["progress"].value, size=(-1, 20))
-            
+
             # Check if process is still alive
             if not state["pgm_proc"].is_alive():
                 state["is_reconstructing"] = False
                 state["pgm_proc"] = None
-        
+
         if os.path.exists(model_path):
             imgui.push_style_color(imgui.COLOR_BUTTON, 0.2, 0.6, 0.2, 1.0)
             if imgui.button("Open Model in Preview"):
@@ -223,24 +239,32 @@ def options_panel(state, stream):
 
         yield
 
+
 def main():
     # Multiprocessing on macOS requires this inside the main guard
-    multiprocessing.set_start_method('spawn', force=True)
-    
+    multiprocessing.set_start_method("spawn", force=True)
+
     stream = init_stream()
     state = {}
-    state["photogrammetry"] = PhotoGrammetry(video_fps=30, target_fps=15, detail=2, temp_dir="pgm", output_path="pgm/reconstruction/model/out.usdz")
-    state["progress"] = multiprocessing.Value('d', 0.0)
+    state["photogrammetry"] = PhotoGrammetry(
+        video_fps=30, target_fps=15, detail=2, temp_dir="pgm", output_path="pgm/reconstruction/model/out.usdz"
+    )
+    state["progress"] = multiprocessing.Value("d", 0.0)
 
-    c.main(c.orr([
-        c.window("Processed Video", processed_video_panel(stream)),
-        c.window("Options", options_panel(state, stream)),
-    ]))
-    
+    c.main(
+        c.orr(
+            [
+                c.window("Processed Video", processed_video_panel(stream)),
+                c.window("Options", options_panel(state, stream)),
+            ]
+        )
+    )
+
     # Cleanup
     if state.get("pgm_proc"):
         state["pgm_proc"].terminate()
     stream.shutdown()
+
 
 if __name__ == "__main__":
     main()
