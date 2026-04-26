@@ -13,7 +13,7 @@ from gi.repository import Gst
 
 from .monkeyseecrab import MultiCrabTracker
 from .video_stream import VideoStream
-from photogrammetry.client import PhotoGrammetry, PgmBindings
+from pgm.pgm import Photogrammetry as PhotoGrammetry, _PgmModule as PgmBindings
 
 # --- Background Worker Function ---
 def run_reconstruction_worker(progress):
@@ -27,8 +27,7 @@ def run_reconstruction_worker(progress):
         pass
 
     # We must re-init the library inside the new process
-    bindings = PgmBindings("libpgm.dylib")
-    pgm = PhotoGrammetry(bindings)
+    pgm = PhotoGrammetry(video_fps=30, target_fps=15, detail=2, temp_dir="pgm", output_path="pgm/reconstruction/model/out.usdz")
     
     # Check if files exist before starting
     input_dir = os.path.abspath("pgm/reconstruction")
@@ -230,7 +229,7 @@ def main():
     
     stream = init_stream()
     state = {}
-    state["photogrammetry"] = PhotoGrammetry(PgmBindings("libpgm.dylib"))
+    state["photogrammetry"] = PhotoGrammetry(video_fps=30, target_fps=15, detail=2, temp_dir="pgm", output_path="pgm/reconstruction/model/out.usdz")
     state["progress"] = multiprocessing.Value('d', 0.0)
 
     c.main(c.orr([

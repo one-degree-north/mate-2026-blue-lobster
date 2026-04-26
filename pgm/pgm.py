@@ -83,6 +83,8 @@ class Photogrammetry:
         self._frame_count = 0
         self._saved_frame_count = 0
         self._is_recording = False
+        self.capture_rate_hz = None
+        self._last_capture_time = 0.0
 
     def _reset_dir(self, path: str) -> None:
         if os.path.exists(path):
@@ -115,6 +117,7 @@ class Photogrammetry:
         self._reset_dir(self.frames_dir)
         self._frame_count = 0
         self._saved_frame_count = 0
+        self._last_capture_time = time.time()
         self._is_recording = True
 
     def receive_frame(self, frame: cv2.typing.MatLike) -> None:
@@ -123,6 +126,15 @@ class Photogrammetry:
         )
         if not self._is_recording:
             return
+
+        if self.capture_rate_hz is not None and self.capture_rate_hz > 0:
+            now = time.time()
+            capture_interval = 1.0 / self.capture_rate_hz
+            if (now - self._last_capture_time) < capture_interval:
+                self._frame_count += 1
+                return
+            self._last_capture_time = now
+
         if self.target_size == "auto":
             self.target_size = (frame.shape[1], frame.shape[0])
         skip_interval = max(1, round(self.video_fps / self.target_fps))
@@ -136,6 +148,12 @@ class Photogrammetry:
         self._is_recording = False
         if self._saved_frame_count == 0:
             print("Warning: no frames were recorded.")
+
+    def set_capture_rate(self, photos_per_second: float | None) -> None:
+        if photos_per_second is None:
+            self.capture_rate_hz = None
+        else:
+            self.capture_rate_hz = max(0.1, float(photos_per_second))
 
     def start_reconstruction(self) -> None:
         output_dir = os.path.dirname(self.output_path)
