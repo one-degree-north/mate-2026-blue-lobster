@@ -118,7 +118,6 @@ class Photogrammetry:
         temp_dir: str = "pgm-temp/",
         output_path: str = "output.usdz",
         video_capture: cv2.VideoCapture = None,
-        scale_factor: float = 1.0,
     ) -> None:
         self.lib = _PgmModule(path=DYLIB_PATH)
         self.video_capture = video_capture
@@ -187,6 +186,14 @@ class Photogrammetry:
         self._is_recording = False
         if self._saved_frame_count == 0:
             print("Warning: no frames were recorded.")
+
+    def set_capture_rate(self, fps: float) -> None:
+        """Set the target capture rate (frames per second). Only works between recording sessions."""
+        if self._is_recording:
+            raise RuntimeError("Cannot change capture rate while recording. Call stop_recording() first.")
+        if fps <= 0:
+            raise ValueError("fps must be positive")
+        self.target_fps = fps
 
     def start_reconstruction(self) -> None:
         output_dir = os.path.dirname(self.output_path)

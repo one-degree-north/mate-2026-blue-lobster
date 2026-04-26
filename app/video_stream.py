@@ -15,7 +15,6 @@ from gi.repository import Gst
 
 class VideoStream:
     def __init__(self, pipeline_desc, recognizer):
-
         Gst.init(None)
 
         self.pipeline = Gst.parse_launch(pipeline_desc)
@@ -37,6 +36,9 @@ class VideoStream:
         self.timeout_threshold = 1.0
         self.last_frame_time = time.time()
         self.tex_no_signal = None
+        self.output_fps = 0.0
+        self._last_processed_time = None
+        self.detection_active = False
 
         self.appsink.connect("new-sample", self._on_new_sample)
         self.pipeline.set_state(Gst.State.PLAYING)
@@ -90,7 +92,10 @@ class VideoStream:
         while True:
             frame = self.frame_queue.get()
 
-            processed = self.recognizer.detect(frame.copy())
+            if self.detection_active:
+                processed = self.recognizer.detect(frame.copy())
+            else:
+                processed = frame.copy()
 
             if processed.shape != frame.shape:
                 processed = frame
@@ -98,6 +103,16 @@ class VideoStream:
             with self.lock:
                 self.raw_frame = frame
                 self.processed_frame = processed
+                now = time.time()
+                if self._last_processed_time is not None:
+                    delta = now - self._last_processed_time
+                    if delta > 0:
+                        instant_fps = 1.0 / delta
+                        # Smooth FPS slightly so UI is stable.
+                        self.output_fps = (
+                            (0.85 * self.output_fps) + (0.15 * instant_fps) if self.output_fps > 0 else instant_fps
+                        )
+                self._last_processed_time = now
 
     # ---------- OpenGL ----------
     def _update_texture(self, tex, frame):
@@ -241,3 +256,25 @@ class VideoStream:
 
     def get_count(self):
         return self.recognizer.counter
+
+    def get_visible_count(self):
+        return self.recognizer.visible_count
+
+    def get_output_fps(self):
+        with self.lock:
+            return self.output_fps
+
+    def set_counting_active(self, is_active):
+        self.recognizer.counting = is_active
+
+    def is_counting_active(self):
+        return self.recognizer.counting
+
+    def set_detection_active(self, is_active):
+        self.detection_active = is_active
+
+    def is_detection_active(self):
+        return self.detection_active
+
+    def reset_counter(self):
+        self.recognizer.reset_counter()
