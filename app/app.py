@@ -71,7 +71,7 @@ def run_reconstruction_worker(photogrammetry: Photogrammetry, app_state: AppStat
 
 
 def init_stream() -> VideoStream:
-    tracker = MultiCrabTracker(detection_interval=20)
+    tracker = MultiCrabTracker()
     tracker.load_training_image(os.path.join(os.path.dirname(__file__), "..", "assets", "monkeydo.png"))
     tracker.counting = False
     pipeline_desc = """

@@ -9,13 +9,13 @@ ASSET_DIR = os.path.join(os.path.dirname(__file__), "..", "assets")
 
 class MultiCrabTracker:
     def __init__(
-        self, min_present=5, distance_thresh=120, missing_frames=25, recount_cooldown=60, detection_interval=3
+        self, min_present=3, distance_thresh=150, missing_frames=25, recount_cooldown=60, detection_interval=3
     ):
 
-        self.sift = cv2.SIFT_create(nfeatures=800)
+        self.sift = cv2.SIFT_create(nfeatures=400)
 
-        index_params = dict(algorithm=1, trees=4)
-        search_params = dict(checks=32)
+        index_params = dict(algorithm=1, trees=2)
+        search_params = dict(checks=16)
         self.matcher = cv2.FlannBasedMatcher(index_params, search_params)
 
         self.training_images = []
@@ -35,7 +35,7 @@ class MultiCrabTracker:
         self.detection_interval = detection_interval
         self.frame_index = 0
 
-        self.scale = 0.5
+        self.scale = 0.75
 
     # ----------------------------
     # Load Training Image
