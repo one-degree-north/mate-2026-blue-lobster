@@ -7,11 +7,15 @@ Install everything inside `pyproject.toml`:
 uv venv
 source .venv/bin/activate
 uv sync
+
+cd pgm
+just build
+cd ..
 ```
 
 Install the following:
 ```
-brew install gstreamer just
+brew install gstreamer just glfw gobject-introspection libffi
 ```
 
 ## Running
