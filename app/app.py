@@ -164,13 +164,11 @@ def options_panel(state: AppState, stream: VideoStream) -> Generator[None, None,
 
         stream.set_detection_active(state.counter_running)
 
+        stream.set_counting_active(state.counter_running)
         if state.counter_running:
-            imgui.text_colored("Counter armed: hold button to count", 0.2, 0.9, 0.2, 1.0)
-            imgui.button("HOLD TO COUNT")
-            stream.set_counting_active(imgui.is_item_active())
+            imgui.text_colored("Counting...", 0.2, 0.9, 0.2, 1.0)
         else:
             imgui.text_disabled("Counter stopped")
-            stream.set_counting_active(False)
 
         imgui.separator()
 
