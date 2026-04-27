@@ -11,7 +11,7 @@ default: run
 run:
     #!/bin/bash
     export DYLD_LIBRARY_PATH="{{DYLD}}"
-    python -m app.app
+    python -m app.app --debug
 
 # Run with debug output
 run-debug:
