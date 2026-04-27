@@ -14,13 +14,14 @@ import imgui
 gi.require_version("Gst", "1.0")
 from gi.repository import Gst
 
-from pgm import Photogrammetry
+from pgm import Photogrammetry, BoundingBox
 
 from .monkeyseecrab import MultiCrabTracker
 from .video_stream import VideoStream
 
-TEMP_DIR = "pgm"
-OUTPUT_PATH = "pgm/reconstruction/model/out.usdz"
+TEMP_DIR = "pgm-temp"
+OUTPUT_PATH = "output.usdz"
+SCALE_FACTOR = 1.0
 
 
 @dataclass
@@ -42,6 +43,9 @@ class AppState:
     counter_running: bool = False
     pgm_capture_hz: float = 2.0
     pgm_thread: threading.Thread | None = None
+
+    scale_factor: float = SCALE_FACTOR
+    bounding_box: BoundingBox | None = None
 
 
 # --- Background Worker Function ---
@@ -179,7 +183,7 @@ def options_panel(state: AppState, stream: VideoStream) -> Generator[None, None,
                     os.makedirs("recordings/")
                 ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
                 filename = f"recordings/snapshot_{ts}.png"
-                cv2.imwrite(filename, stream.raw_frame)
+                cv2.imwrite(filename, cv2.cvtColor(stream.raw_frame, cv2.COLOR_RGB2BGR))
 
         imgui.separator()
 
@@ -193,6 +197,24 @@ def options_panel(state: AppState, stream: VideoStream) -> Generator[None, None,
         elif changed:
             state.photogrammetry.set_capture_rate(state.pgm_capture_hz)
         imgui.text_disabled(f"Current: {state.pgm_capture_hz:.1f} photos/sec")
+        imgui.separator()
+
+        imgui.text("Photogrammetry Video FPS")
+        if state.photogrammetry_active:
+            imgui.push_style_var(imgui.STYLE_ALPHA, 0.5)
+        _, state.photogrammetry.video_fps = imgui.slider_int("Video FPS", state.photogrammetry.video_fps, 1, 60)
+        if state.photogrammetry_active:
+            imgui.pop_style_var()
+            imgui.text_disabled("(locked during recording)")
+        imgui.separator()
+
+        imgui.text("Photogrammetry Detail Level")
+        if state.photogrammetry_active:
+            imgui.push_style_var(imgui.STYLE_ALPHA, 0.5)
+        _, state.photogrammetry.detail = imgui.slider_int("Detail Level", state.photogrammetry.detail, 0, 4)
+        if state.photogrammetry_active:
+            imgui.pop_style_var()
+            imgui.text_disabled("(locked during recording)")
         imgui.separator()
 
         if state.pgm_error:
@@ -246,6 +268,23 @@ def options_panel(state: AppState, stream: VideoStream) -> Generator[None, None,
                 subprocess.run(["open", "-a", "Preview", model_path])
             imgui.pop_style_color()
 
+        imgui.separator()
+        imgui.text("Bounding Box")
+        _, state.scale_factor = imgui.input_float("Scale Factor", state.scale_factor, step=0.1, format="%.3f")
+
+        can_get_bbox = os.path.exists(model_path) or state.photogrammetry.is_completed()
+        if not can_get_bbox:
+            imgui.push_style_var(imgui.STYLE_ALPHA, 0.5)
+        if imgui.button("Get Bounding Box") and can_get_bbox:
+            state.bounding_box = state.photogrammetry.get_bounding_box(state.scale_factor)
+        if not can_get_bbox:
+            imgui.pop_style_var()
+
+        if state.bounding_box is not None:
+            bb = state.bounding_box
+            imgui.text(f"W: {bb.width:.4f}  H: {bb.height:.4f}  D: {bb.depth:.4f}")
+            imgui.text_disabled(f"({bb.min_x:.3f}, {bb.min_y:.3f}, {bb.min_z:.3f}) → ({bb.max_x:.3f}, {bb.max_y:.3f}, {bb.max_z:.3f})")
+
         yield
 
 
@@ -253,7 +292,7 @@ def main() -> None:
     stream = init_stream()
     state = AppState(
         photogrammetry=Photogrammetry(
-            video_fps=30, target_fps=15, detail=2, temp_dir=TEMP_DIR, output_path=OUTPUT_PATH
+            video_fps=30, target_fps=15, detail=0, temp_dir=TEMP_DIR, output_path=OUTPUT_PATH
         ),
         stop_event=threading.Event(),
     )

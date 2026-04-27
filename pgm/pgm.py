@@ -214,6 +214,8 @@ class Photogrammetry:
         return self.lib.is_completed()
 
     def get_bounding_box(self, scale_factor: float) -> BoundingBox:
+        # TODO: enforce condition that output path exists
+        assert os.path.exists(self.output_path)
         raw = self.lib.get_bounding_box(self.output_path.encode())
         return BoundingBox(
             min_x=raw.min_x * scale_factor,
@@ -223,6 +225,7 @@ class Photogrammetry:
             max_y=raw.max_y * scale_factor,
             max_z=raw.max_z * scale_factor,
         )
+        
 
 
 if __name__ == "__main__":
@@ -311,5 +314,5 @@ if __name__ == "__main__":
         print("Reconstruction complete!")
 
     print("Getting bounding box")
-    bbox = photogrammetry.get_bounding_box()
+    bbox = photogrammetry.get_bounding_box(1)
     print(bbox.width, bbox.height, bbox.depth)

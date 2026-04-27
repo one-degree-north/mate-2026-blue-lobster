@@ -23,7 +23,7 @@ run-debug:
 run-dev:
     #!/bin/bash
     export DYLD_LIBRARY_PATH="{{DYLD}}"
-    gst-launch-1.0 avfvideosrc! videoconvert ! video/x-raw,format=I420 ! x264enc tune=zerolatency speed-preset=ultrafast bitrate=5000 key-int-max=30 ! rtph264pay pt=96 config-interval=1 ! udpsink host=127.0.0.1 port=5000 &
+    gst-launch-1.0 avfvideosrc! video/x-raw,width=1280,height=720 ! videoconvert ! video/x-raw,format=I420 ! x264enc tune=zerolatency speed-preset=ultrafast bitrate=5000 key-int-max=30 ! rtph264pay pt=96 config-interval=1 ! udpsink host=127.0.0.1 port=5000 &
     GST_PID=$!
     trap 'kill "$GST_PID" 2>/dev/null || true' EXIT
     python -m app.app --debug
