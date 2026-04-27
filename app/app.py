@@ -73,12 +73,12 @@ def run_reconstruction_worker(photogrammetry: Photogrammetry, app_state: AppStat
 # --- UI Panels ---
 
 
-def init_stream() -> VideoStream:
+def init_stream(port) -> VideoStream:
     tracker = MultiCrabTracker()
     tracker.load_training_image(os.path.join(os.path.dirname(__file__), "..", "assets", "monkeydo.png"))
     tracker.counting = False
     pipeline_desc = f"""
-    udpsrc port=5600 caps="application/x-rtp, media=video, encoding-name=H264, payload=96" !
+    udpsrc port={port} caps="application/x-rtp, media=video, encoding-name=H264, payload=96" !
     rtph264depay ! avdec_h264 !
     videoconvert ! video/x-raw,format=RGB ! tee name=t
     t. ! queue ! appsink name=sink emit-signals=true max-buffers=1 drop=true
@@ -334,7 +334,9 @@ def main() -> None:
     logging.root.handlers = [handler]
 
     logging.info("Starting app")
-    stream = init_stream()
+    
+    logging.debug("Running at PORT %s", sys.argv[2])
+    stream = init_stream(sys.argv[2])
     state = AppState(
         photogrammetry=Photogrammetry(
             video_fps=30, target_fps=15, detail=0, temp_dir=TEMP_DIR, output_path=OUTPUT_PATH
