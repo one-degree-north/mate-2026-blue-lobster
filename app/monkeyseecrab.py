@@ -1,3 +1,4 @@
+import logging
 import os
 import random
 
@@ -45,7 +46,7 @@ class MultiCrabTracker:
         frame = cv2.imread(filepath)
 
         if frame is None:
-            print("❌ Failed to load training image")
+            logging.debug("Failed to load training image")
             return False
 
         frame = cv2.resize(frame, (0, 0), fx=self.scale, fy=self.scale)
@@ -53,10 +54,10 @@ class MultiCrabTracker:
 
         kp, des = self.sift.detectAndCompute(gray, None)
 
-        print("Keypoints:", len(kp))
+        logging.debug("Keypoints: %s", len(kp))
 
         if des is None or len(kp) < 15:
-            print("❌ Not enough features")
+            logging.debug("Not enough features")
             return False
 
         self.training_images.append(
@@ -68,7 +69,7 @@ class MultiCrabTracker:
             }
         )
 
-        print("✅ Training image added")
+        logging.debug("Training image added")
         return True
 
     # ----------------------------
@@ -188,7 +189,7 @@ class MultiCrabTracker:
                 crab["counted"] = True
                 crab["cooldown"] = self.recount_cooldown
 
-                print("🦀 Total crabs:", self.counter)
+                logging.debug("Total crabs: %s", self.counter)
 
         # Remove lost
         self.tracked = [c for c in self.tracked if c["missing"] < self.max_missing]
@@ -245,7 +246,7 @@ if __name__ == "__main__":
     cap = cv2.VideoCapture(0)
 
     if not cap.isOpened():
-        print("Error: Could not open camera")
+        logging.debug("Error: Could not open camera")
         exit()
 
     while True:

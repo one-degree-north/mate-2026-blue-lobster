@@ -225,7 +225,6 @@ class Photogrammetry:
             max_y=raw.max_y * scale_factor,
             max_z=raw.max_z * scale_factor,
         )
-        
 
 
 if __name__ == "__main__":

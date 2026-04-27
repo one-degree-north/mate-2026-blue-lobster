@@ -1,11 +1,14 @@
 import datetime
+import logging
 import os
 import subprocess
+import sys
 import threading
 import time
 from collections.abc import Generator
 from dataclasses import dataclass
 
+import colorlog
 import concur as c
 import cv2
 import gi
@@ -14,7 +17,7 @@ import imgui
 gi.require_version("Gst", "1.0")
 from gi.repository import Gst
 
-from pgm import Photogrammetry, BoundingBox
+from pgm import BoundingBox, Photogrammetry
 
 from .monkeyseecrab import MultiCrabTracker
 from .video_stream import VideoStream
@@ -281,12 +284,56 @@ def options_panel(state: AppState, stream: VideoStream) -> Generator[None, None,
         if state.bounding_box is not None:
             bb = state.bounding_box
             imgui.text(f"W: {bb.width:.4f}  H: {bb.height:.4f}  D: {bb.depth:.4f}")
-            imgui.text_disabled(f"({bb.min_x:.3f}, {bb.min_y:.3f}, {bb.min_z:.3f}) → ({bb.max_x:.3f}, {bb.max_y:.3f}, {bb.max_z:.3f})")
+            imgui.text_disabled(
+                f"({bb.min_x:.3f}, {bb.min_y:.3f}, {bb.min_z:.3f}) → ({bb.max_x:.3f}, {bb.max_y:.3f}, {bb.max_z:.3f})"
+            )
+
+        yield
+
+
+def dev_tools_panel(state: AppState, stream: VideoStream) -> Generator[None, None, None]:
+    while True:
+        snap_to_grid(50)
+        imgui.text("Dev Tools")
+        imgui.separator()
+
+        imgui.text("Photogrammetry")
+        _, state.photogrammetry.video_fps = imgui.slider_int("video_fps", state.photogrammetry.video_fps, 1, 60)
+        _, state.photogrammetry.target_fps = imgui.slider_int("target_fps", state.photogrammetry.target_fps, 1, 60)
+        _, state.photogrammetry.detail = imgui.slider_int("detail", state.photogrammetry.detail, 0, 4)
+        imgui.text_disabled(f"target_size: {state.photogrammetry.target_size}")
+        imgui.text_disabled(f"temp_dir: {state.photogrammetry.temp_dir}")
+        imgui.text_disabled(f"output_path: {state.photogrammetry.output_path}")
+
+        imgui.separator()
+
+        tracker = stream.recognizer
+        imgui.text("MultiCrabTracker")
+        _, tracker.min_present = imgui.slider_int("min_present", tracker.min_present, 1, 20)
+        _, tracker.distance_thresh = imgui.slider_int("distance_thresh", tracker.distance_thresh, 10, 500)
+        _, tracker.max_missing = imgui.slider_int("missing_frames", tracker.max_missing, 1, 100)
+        _, tracker.recount_cooldown = imgui.slider_int("recount_cooldown", tracker.recount_cooldown, 0, 300)
+        _, tracker.detection_interval = imgui.slider_int("detection_interval", tracker.detection_interval, 1, 30)
 
         yield
 
 
 def main() -> None:
+    debug = "--debug" in sys.argv
+    handler = colorlog.StreamHandler()
+    if debug:
+        handler.setFormatter(
+            colorlog.ColoredFormatter(
+                "%(log_color)s%(asctime)s [%(threadName)-10s] %(filename)s:%(lineno)d %(funcName)s() %(levelname)s:%(reset)s %(message)s"
+            )
+        )
+        logging.root.setLevel(logging.DEBUG)
+    else:
+        handler.setFormatter(colorlog.ColoredFormatter("%(log_color)s%(asctime)s %(levelname)s:%(reset)s %(message)s"))
+        logging.root.setLevel(logging.INFO)
+    logging.root.handlers = [handler]
+
+    logging.info("Starting app")
     stream = init_stream()
     state = AppState(
         photogrammetry=Photogrammetry(
@@ -300,6 +347,7 @@ def main() -> None:
             [
                 c.window("Processed Video", processed_video_panel(stream)),
                 c.window("Options", options_panel(state, stream)),
+                c.window("Dev Tools", dev_tools_panel(state, stream)),
             ]
         )
     )
