@@ -22,8 +22,8 @@ from pgm import BoundingBox, Photogrammetry
 from .monkeyseecrab import MultiCrabTracker
 from .video_stream import VideoStream
 
-TEMP_DIR = "pgm-temp"
-OUTPUT_PATH = "output.usdz"
+TEMP_DIR = os.path.abspath("pgm-temp")
+OUTPUT_PATH = os.path.abspath("output.usdz")
 SCALE_FACTOR = 1.0
 
 
@@ -338,8 +338,8 @@ def main() -> None:
     logging.debug("Running at PORT %s", sys.argv[2])
     stream = init_stream(sys.argv[2])
     state = AppState(
-        photogrammetry=Photogrammetry(
-            video_fps=30, target_fps=15, detail=0, temp_dir=TEMP_DIR, output_path=OUTPUT_PATH
+        photogrammetry=Photogrammetry( 
+            video_fps=30, target_fps=5, detail=0, temp_dir=TEMP_DIR, output_path=OUTPUT_PATH
         ),
         stop_event=threading.Event(),
     )

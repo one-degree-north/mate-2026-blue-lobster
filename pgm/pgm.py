@@ -127,8 +127,8 @@ class Photogrammetry:
         self.target_size = output_size
         self.detail = detail
 
-        self.temp_dir = temp_dir
-        self.output_path = output_path
+        self.temp_dir = os.path.abspath(temp_dir)
+        self.output_path = os.path.abspath(output_path)
         self.frames_dir = os.path.join(self.temp_dir, "reconstruction")
         self._frame_count = 0
         self._saved_frame_count = 0

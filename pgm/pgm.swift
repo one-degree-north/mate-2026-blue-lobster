@@ -36,7 +36,7 @@ private var timeIntervalFormatter = {
     return formatter
 }()
 
-let LOG = false
+let LOG = false // TODO: set true in debug mode
 
 private func info(_ message: String, terminator: String = "\n") {
     if LOG {
@@ -150,6 +150,12 @@ public func RunPhotogrammetrySession(
             case .processingComplete:
                 info("Processing is complete!")
                 info("Time Taken: \(timeIntervalFormatter.string(from: start_time, to: Date()) ?? "")")
+
+                guard FileManager.default.fileExists(atPath: outputPath) else {
+                    warn("Output file was not created - processing may have failed")
+                    completed.withLock { completed in completed = true }
+                    return
+                }
 
                 let modelAsset = MDLAsset(url: URL(filePath: outputPath))
                 modelAsset.loadTextures()
